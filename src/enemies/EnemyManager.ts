@@ -17,7 +17,7 @@ const ENEMY_CONFIGS: Record<string, EnemyConfig> = {
   BOMBER: ENEMIES.BOMBER,
 };
 
-const PLAN_NAMES: PlanName[] = ['SWEEP', 'DIVE_BOMB', 'CIRCLE', 'ZIGZAG', 'DIVE'];
+const PLAN_NAMES: PlanName[] = ['SWEEP', 'DIVE_BOMB', 'CIRCLE', 'ZIGZAG', 'DIVE', 'CRUISE'];
 
 export interface EnemyProjectileDef {
   position: THREE.Vector3;
@@ -53,6 +53,8 @@ export class EnemyManager {
   get pendingProjectiles(): EnemyProjectileDef[] { return this._pendingProjectiles; }
   /** Enemies that crashed into the player this frame. */
   get rams(): Enemy[] { return this._rams; }
+  /** Story flag: new spawns may make suicide runs. */
+  kamikaze = false;
 
   clearPendingProjectiles(): void {
     this._pendingProjectiles = [];
@@ -83,6 +85,7 @@ export class EnemyManager {
     enemy.configure(config, type);
     enemy.planName = (PLAN_NAMES as string[]).includes(pattern) ? pattern as PlanName : 'SWEEP';
     enemy.setTunnel(null, this._tunnelRadius);
+    enemy.kamikaze = this.kamikaze;
     enemy.init(slot, this.frame, playerPos);
     return enemy;
   }

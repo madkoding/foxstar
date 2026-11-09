@@ -53,6 +53,12 @@ export class AudioManager {
     return this.reverb;
   }
 
+  /** Shared output for other synths (music cues). Null before first use fails. */
+  getBus(): { ctx: AudioContext; out: AudioNode } | null {
+    const ctx = this.ensureContext();
+    return ctx && this.masterGain ? { ctx, out: this.masterGain } : null;
+  }
+
   get muted(): boolean {
     return this._muted;
   }
@@ -515,6 +521,130 @@ export class AudioManager {
       osc.start(t);
       osc.stop(t + 0.13);
     });
+  }
+
+  // ── Story sounds ─────────────────────────────────────────────────────────
+
+  private _lamentStep = 0;
+  /**
+   * A crystal breaking should sound like rock. It doesn't: it sings — one
+   * note of a slow, falling minor phrase, as if something were grieving.
+   */
+  playLament(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const phrase = [440, 392, 349.23, 329.63, 293.66, 261.63, 220];  // A minor, descending
+    const f = phrase[this._lamentStep++ % phrase.length];
+    const t = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.22, t + 0.04);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 2.6);
+    out.connect(this.masterGain);
+    const reverb = this.getReverb();
+    if (reverb) out.connect(reverb);
+    // Root + minor third + fifth above, slightly detuned so it beats sadly.
+    for (const [mult, type, level] of [[1, 'sine', 1], [1.189, 'sine', 0.45], [1.498, 'triangle', 0.3], [2.004, 'sine', 0.18]] as const) {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(f * mult, t);
+      osc.frequency.exponentialRampToValueAtTime(f * mult * 0.985, t + 2.4);
+      g.gain.value = level;
+      osc.connect(g);
+      g.connect(out);
+      osc.start(t);
+      osc.stop(t + 2.7);
+    }
+  }
+
+  /** Tiny typewriter voice blip. `pitch` shifts with the speaker's mood. */
+  playVoiceBlip(pitch: number, harsh = false): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = harsh ? 'sawtooth' : 'sine';
+    osc.frequency.setValueAtTime(pitch * (0.96 + Math.random() * 0.08), t);
+    gain.gain.setValueAtTime(harsh ? 0.035 : 0.05, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    osc.start(t);
+    osc.stop(t + 0.06);
+  }
+
+  /** Burst of radio static (Lyra breaking up). */
+  playStatic(duration = 1.2): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const t = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.getNoise(ctx);
+    src.loop = true;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(2600, t);
+    filter.frequency.exponentialRampToValueAtTime(300, t + duration);
+    filter.Q.value = 0.8;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.3, t + 0.03);
+    // Stuttering dropouts.
+    for (let i = 1; i < 8; i++) gain.gain.setValueAtTime(i % 2 ? 0.04 : 0.28, t + (duration * i) / 9);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+    src.start(t);
+    src.stop(t + duration + 0.05);
+  }
+
+  /** Warm rising major chord: the Guardian's aurora closing around the ship. */
+  playAuroraSwell(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const t = ctx.currentTime;
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, t);
+    out.gain.exponentialRampToValueAtTime(0.3, t + 1.8);
+    out.gain.exponentialRampToValueAtTime(0.0001, t + 7);
+    out.connect(this.masterGain);
+    const reverb = this.getReverb();
+    if (reverb) out.connect(reverb);
+    [220, 277.18, 329.63, 440, 554.37, 659.25].forEach((f, i) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = i % 2 ? 'triangle' : 'sine';
+      osc.frequency.setValueAtTime(f * 0.5, t);
+      osc.frequency.exponentialRampToValueAtTime(f, t + 1.6 + i * 0.25);
+      g.gain.value = 0.35 / (1 + i * 0.4);
+      osc.connect(g);
+      g.connect(out);
+      osc.start(t + i * 0.12);
+      osc.stop(t + 7.1);
+    });
+  }
+
+  /** Soft glassy ping (laser ricochet off the cave walls). */
+  playRicochet(): void {
+    const ctx = this.ensureContext();
+    if (!ctx || !this.masterGain) return;
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(1500 + Math.random() * 900, t);
+    osc.frequency.exponentialRampToValueAtTime(900, t + 0.18);
+    gain.gain.setValueAtTime(0.06, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+    const reverb = this.getReverb();
+    if (reverb) gain.connect(reverb);
+    osc.start(t);
+    osc.stop(t + 0.22);
   }
 
   playBoost(): void {

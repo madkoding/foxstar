@@ -41,6 +41,7 @@ export class Projectile {
   private _exploded = false;
   private _prevPosition = new THREE.Vector3();
   private _fuse = -1; // < 0 = no fuse; > 0 = countdown to auto-explode
+  private _bounces = 0;
 
   constructor() {
     const mat = new THREE.MeshBasicMaterial({
@@ -103,6 +104,7 @@ export class Projectile {
     this._lifetime = 0; this._active = true;
     this._isPlayerProjectile = isPlayer; this._exploded = false;
     this._fuse = -1;
+    this._bounces = 0;
     this._maxLifetime = kind === 'BOMB' ? 5 : 3;
 
     if (kind === 'BOMB') {
@@ -134,6 +136,17 @@ export class Projectile {
   }
 
   setFuse(seconds: number): void { this._fuse = seconds; }
+
+  /** Ricochets so far (cave walls). */
+  get bounces(): number { return this._bounces; }
+
+  /** Mirror the velocity about a surface normal (unit vector). */
+  reflect(normal: THREE.Vector3): void {
+    this._velocity.reflect(normal);
+    this._bounces++;
+    this._lifetime = Math.max(0, this._lifetime - 0.8);
+    this.mesh.lookAt(this.mesh.position.clone().add(this._velocity));
+  }
 
   // Returns true when the fuse countdown reaches zero (clamped to 0 in update)
   shouldExplode(): boolean { return this._fuse === 0; }

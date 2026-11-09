@@ -54,6 +54,8 @@ const PALETTES: Record<TerrainType, Palette> = {
   city:       { rock: 0x5a6478, rockEmissive: 0x000000, crystal: 0x44ccff },
   void:       { rock: 0x5a5458, rockEmissive: 0x000000, crystal: 0xff4466 },
   aurora:     { rock: 0x8aa0a8, rockEmissive: 0x002218, crystal: 0x66ffaa },
+  forest:     { rock: 0x6a5238, rockEmissive: 0x000000, crystal: 0x7dffb0 },
+  core:       { rock: 0x4a3a8a, rockEmissive: 0x2a0a55, crystal: 0xff7ad0 },
 };
 
 const SPACE_LIKE: TerrainType[] = ['space', 'nebula', 'void', 'aurora'];
@@ -109,7 +111,7 @@ export class ObstacleManager {
   private time = 0;
 
   /** Called when an obstacle is destroyed (explosion / score in Game). */
-  onDestroyed: ((center: THREE.Vector3, color: number, size: number) => void) | null = null;
+  onDestroyed: ((center: THREE.Vector3, color: number, size: number, kind: Obstacle['kind']) => void) | null = null;
 
   constructor(scene: THREE.Scene, poolSize = 28) {
     this.scene = scene;
@@ -225,7 +227,7 @@ export class ObstacleManager {
 
   destroy(o: Obstacle): void {
     if (!o.active) return;
-    this.onDestroyed?.(o.center.clone(), o.color, o.size);
+    this.onDestroyed?.(o.center.clone(), o.color, o.size, o.kind);
     this.deactivate(o);
   }
 
@@ -259,6 +261,7 @@ export class ObstacleManager {
     if (SPACE_LIKE.includes(t)) this.makeAsteroid(slot, f);
     else if (t === 'cave') r < 0.45 ? this.makeStalactite(slot, f) : r < 0.85 ? this.makeSpire(slot, f) : this.makeCrystal(slot, f);
     else if (t === 'city') r < 0.7 ? this.makePylon(slot, f) : this.makeArch(slot, f, true);
+    else if (t === 'forest') r < 0.5 ? this.makeSpire(slot, f) : r < 0.9 ? this.makeArch(slot, f, false) : this.makeCrystal(slot, f);
     else if (t === 'lava') r < 0.7 ? this.makeSpire(slot, f) : this.makeCrystal(slot, f);
     else r < 0.55 ? this.makeSpire(slot, f) : r < 0.8 ? this.makeArch(slot, f, false) : this.makeCrystal(slot, f);
 

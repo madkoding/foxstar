@@ -43,6 +43,8 @@ const CONFIGS: Record<TerrainType, DecorConfig> = {
   city:       { enabled: true,  density: 8,  kinds: ['tower'] },
   void:       { enabled: false, density: 0,  kinds: [] },
   aurora:     { enabled: true,  density: 10, kinds: ['icecrystal'] },
+  forest:     { enabled: false, density: 0,  kinds: [] },
+  core:       { enabled: true,  density: 10, kinds: ['crystal'] },
 };
 
 // Spawn band: props appear between these z offsets ahead of the player.

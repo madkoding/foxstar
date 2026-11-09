@@ -59,6 +59,7 @@ export class WaveManager {
   private _curveLength = 1;
   private _railProgress = 0;
   private _bossAnchor = new THREE.Vector3();
+  private _hasBoss = false;
 
   constructor(scene: THREE.Scene, enemyManager: EnemyManager) {
     this.scene = scene;
@@ -103,11 +104,13 @@ export class WaveManager {
     this._fillFormations(levelDef);
 
     // Create boss if needed
+    this._hasBoss = levelDef.hasBoss;
+    if (this.boss) {
+      this.scene.remove(this.boss.mesh);
+      this.boss.dispose();
+      this.boss = null;
+    }
     if (levelDef.hasBoss) {
-      if (this.boss) {
-        this.scene.remove(this.boss.mesh);
-        this.boss.dispose();
-      }
       this.boss = new BossMothership();
       this.scene.add(this.boss.mesh);
     }
@@ -251,8 +254,15 @@ export class WaveManager {
     // and bring out the boss.
     if (!this._bossActive && stageProgress >= RAIL.BOSS_AT) {
       this._spawningStopped = true;
-      // Never drop the boss in during the ENGAGE countdown after a respawn.
-      if (!this._engageMode) this.startBoss();
+      if (this._hasBoss) {
+        // Never drop the boss in during the ENGAGE countdown after a respawn.
+        if (!this._engageMode) this.startBoss();
+      } else if (stageProgress >= 0.995 && !this._engageMode) {
+        // Stages without a guardian end when the ship reaches the far side.
+        this._levelComplete = true;
+        this.eventBus.emit(GameEvent.LEVEL_COMPLETE, { level: this._currentLevel + 1, score: 0 });
+        return;
+      }
     }
 
     // Boss logic — attack volleys are fired by the orchestrator when canAttack
@@ -327,6 +337,13 @@ export class WaveManager {
     this._lastPlayerZ = 0;
     this._spawningStopped = false;
     if (this.boss) this.boss.reset();
+  }
+
+  /** Good ending: the fight is over but the Guardian lives on. */
+  pacifyBoss(): void {
+    if (!this.boss) return;
+    this.boss.pacify();
+    this._spawningStopped = true;
   }
 
   setEngageMode(active: boolean): void {

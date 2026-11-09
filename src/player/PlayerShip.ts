@@ -74,6 +74,10 @@ export class PlayerShip {
   private _screenVelocityX = 0;
   private _screenVelocityY = 0;
 
+  private _yaw = 0;
+  private _yawTarget = 0;
+  private _tailGlow = false;
+
   constructor(scene: THREE.Scene) {
     this.eventBus = EventBus.getInstance();
     this._health = PLAYER.STARTING_HEALTH;
@@ -291,7 +295,7 @@ export class PlayerShip {
     const flicker = 0.85 + Math.sin(this._time * 60) * 0.08 + Math.random() * 0.07;
     this.engineFlare.scale.setScalar((0.6 + this._boost * 2.2) * flicker);
     (this.engineFlare.material as THREE.SpriteMaterial).color.setHex(this._boost > 0.3 ? 0x88eeff : 0x2a8fbf);
-    this.foxTail.setIntensity(1 + this._boost * 1.6);
+    this.foxTail.setIntensity((this._tailGlow ? 2.6 : 1) + this._boost * 1.6);
     this.foxTail.update(dt);
 
     // Shield bubble
@@ -319,10 +323,17 @@ export class PlayerShip {
     const k = 1 - Math.exp(-6 * dt);
     this._bank = THREE.MathUtils.lerp(this._bank, this._bankTarget, k);
     this._pitch = THREE.MathUtils.lerp(this._pitch, this._pitchTarget, k);
-    this._euler.set(this._pitch, 0, this._bank + rollAngle, 'YXZ');
+    this._yaw = THREE.MathUtils.lerp(this._yaw, this._yawTarget, 1 - Math.exp(-3.2 * dt));
+    this._euler.set(this._pitch, this._yaw, this._bank + rollAngle, 'YXZ');
     this._tmpQuat.setFromEuler(this._euler);
     this.group.quaternion.copy(this._baseQuat).multiply(this._tmpQuat);
   }
+
+  /** Turn the ship about its vertical axis (π = facing back down the rail). */
+  setYaw(radians: number): void { this._yawTarget = radians; }
+
+  /** Epilogue: the fox tail burns with its own, natural light. */
+  setTailGlow(on: boolean): void { this._tailGlow = on; }
 
   heal(amount: number): void {
     this._health = Math.min(PLAYER.MAX_HEALTH, this._health + amount);
@@ -342,6 +353,8 @@ export class PlayerShip {
     this._rollCooldown = 0;
     this._boost = 0;
     this._shieldFx = 0;
+    this._yaw = this._yawTarget = 0;
+    this._tailGlow = false;
     this.group.visible = true;
     this.setHullVisible(true);
     this.foxTail.setVisible(true);

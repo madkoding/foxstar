@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import type { TerrainType } from '../levels/LevelData';
+import { paintCoreSky, paintForestSky } from './PaintedSky';
 
 // Image per terrain (served from /backgrounds/<terrain>.jpg).
 const IMAGE_PATHS: Record<TerrainType, string> = {
@@ -18,6 +19,15 @@ const IMAGE_PATHS: Record<TerrainType, string> = {
   city:       'backgrounds/city.jpg',
   void:       'backgrounds/void.jpg',
   aurora:     'backgrounds/aurora.jpg',
+  // Fallbacks only: these two biomes get a painted sky (see PAINTED below).
+  forest:     'backgrounds/atmosphere.jpg',
+  core:       'backgrounds/nebula.jpg',
+};
+
+// Skies painted in code instead of loaded from a photo.
+const PAINTED: Partial<Record<TerrainType, () => HTMLCanvasElement>> = {
+  forest: paintForestSky,
+  core: paintCoreSky,
 };
 
 // Sky (top) and ground (bottom) colors for hemisphere light tinting.
@@ -32,6 +42,8 @@ const PALETTE: Record<TerrainType, { sky: THREE.Color; ground: THREE.Color }> = 
   city:       { sky: new THREE.Color(0x14142a), ground: new THREE.Color(0x3a5a7a) },
   void:       { sky: new THREE.Color(0x0a0a0a), ground: new THREE.Color(0x1a1a1a) },
   aurora:     { sky: new THREE.Color(0x142a3e), ground: new THREE.Color(0x3a8a6a) },
+  forest:     { sky: new THREE.Color(0x4a8a6a), ground: new THREE.Color(0xb0e8a0) },
+  core:       { sky: new THREE.Color(0x3a1a6a), ground: new THREE.Color(0x66e0ff) },
 };
 
 export function getEnvironmentColors(terrain: TerrainType): { sky: THREE.Color; ground: THREE.Color } {
@@ -48,10 +60,7 @@ export class Skybox {
   private horizons: Partial<Record<TerrainType, THREE.Color>> = {};
   /** Called when the active sky (texture + horizon colour) becomes available. */
   onSkyChange: ((tex: THREE.Texture | null, horizon: THREE.Color | null) => void) | null = null;
-  private loaded: Record<TerrainType, boolean> = {
-    space: false, atmosphere: false, cave: false, nebula: false, storm: false,
-    ice: false, lava: false, city: false, void: false, aurora: false,
-  };
+  private loaded: Partial<Record<TerrainType, boolean>> = {};
 
   constructor(scene: THREE.Scene, camera: THREE.PerspectiveCamera) {
     this.scene = scene;
@@ -72,22 +81,31 @@ export class Skybox {
     scene.add(this.mesh);
 
     // Kick off loading for every terrain image.
+    // One load per unique photo; biomes that share a photo share the texture.
+    const byPath = new Map<string, TerrainType[]>();
     for (const t of Object.keys(IMAGE_PATHS) as TerrainType[]) {
-      this.load(t);
+      if (PAINTED[t]) continue;   // painted lazily on first use
+      const list = byPath.get(IMAGE_PATHS[t]) ?? [];
+      list.push(t);
+      byPath.set(IMAGE_PATHS[t], list);
     }
+    for (const [path, terrains] of byPath) this.load(path, terrains);
   }
 
-  private load(terrain: TerrainType): void {
+  private load(path: string, terrains: TerrainType[]): void {
     const loader = new THREE.TextureLoader();
     loader.load(
-      IMAGE_PATHS[terrain],
+      path,
       (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
-        this.textures[terrain] = tex;
-        this.horizons[terrain] = this.sampleHorizon(tex) ?? undefined;
-        this.loaded[terrain] = true;
-        // If this is the active terrain, show it immediately.
-        if (terrain === this.current) this.show(terrain);
+        const horizon = this.sampleHorizon(tex) ?? undefined;
+        for (const terrain of terrains) {
+          this.textures[terrain] = tex;
+          this.horizons[terrain] = horizon;
+          this.loaded[terrain] = true;
+          // If this is the active terrain, show it immediately.
+          if (terrain === this.current) this.show(terrain);
+        }
       },
       undefined,
       () => { /* keep previous on failure */ },
@@ -131,6 +149,14 @@ export class Skybox {
   apply(terrain: TerrainType): void {
     if (terrain === this.current) { this.onSkyChange?.(this.texture, this.horizon); return; }
     this.current = terrain;
+    const painter = PAINTED[terrain];
+    if (painter && !this.loaded[terrain]) {
+      const tex = new THREE.CanvasTexture(painter());
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.textures[terrain] = tex;
+      this.horizons[terrain] = this.sampleHorizon(tex) ?? undefined;
+      this.loaded[terrain] = true;
+    }
     if (this.loaded[terrain]) this.show(terrain);
     else this.onSkyChange?.(null, null);
   }
@@ -144,6 +170,6 @@ export class Skybox {
     this.scene.remove(this.mesh);
     this.mesh.geometry.dispose();
     this.material.dispose();
-    for (const t of Object.values(this.textures)) t?.dispose();
+    for (const t of new Set(Object.values(this.textures))) t?.dispose();
   }
 }

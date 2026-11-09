@@ -134,7 +134,7 @@ export class TerrainManager {
     this.material.roughness = p?.roughness ?? 0.9;
     // The scene lights are tuned bright for the ships; tone the ground down
     // (snow most of all) so it keeps contrast and doesn't bloom.
-    this.material.color.setScalar(terrain === 'ice' ? 0.62 : terrain === 'lava' ? 0.95 : terrain === 'storm' ? 1.25 : 0.9);
+    this.material.color.setScalar(terrain === 'ice' ? 0.62 : terrain === 'lava' ? 0.95 : terrain === 'storm' ? 1.25 : terrain === 'core' ? 0.7 : 0.9);
     this.material.needsUpdate = true;
 
     for (const c of this.chunks.values()) this.releaseChunk(c);
@@ -147,6 +147,10 @@ export class TerrainManager {
         ? { deep: 0x0b2a44, shallow: 0x3a7a98, chop: 0.7, glint: 0.8 }
         : terrain === 'storm'
           ? { deep: 0x111d24, shallow: 0x34505a, chop: 1.6, glint: 0.0 }
+        : terrain === 'forest'
+          ? { deep: 0x0a2a22, shallow: 0x2a7a5a, chop: 0.5, glint: 0.8 }
+        : terrain === 'core'
+          ? { deep: 0x12306a, shallow: 0x3ac8c0, chop: 0.4, glint: 1.0 }
           : { deep: 0x04283c, shallow: 0x135f6a, chop: 1.0, glint: 1.0 };
       this.liquids.configure(p.liquid, getRailShape(), level, { ...palette, sky: this.skyTexture });
     } else {

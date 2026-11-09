@@ -112,6 +112,12 @@ export class Enemy {
 
   /** Set when this enemy rams the player this frame (read by the manager). */
   rammed = false;
+  /** Story: abandon the manoeuvre and throw itself at the ship (stage 7+). */
+  kamikaze = false;
+  private _homing = 0;         // 0 = flying the plan, →1 = committed to the ram
+  private _homeAt = 1;         // plan fraction where this pilot commits
+  private _homeLocal = new THREE.Vector3();
+  private _playerLocal = new THREE.Vector3();
 
   private static nextId = 0;
 
@@ -224,6 +230,9 @@ export class Enemy {
     this._cooldown = Math.random() * 0.6;
     this._muzzleFlash = 0;
     this.rammed = false;
+    this._homing = 0;
+    // Roughly half the squadron commits, each at its own moment.
+    this._homeAt = Math.random() < 0.55 ? 0.3 + Math.random() * 0.3 : 2;
 
     this._spawnAnim = 0;
     this._hitPunch = 0;
@@ -276,6 +285,8 @@ export class Enemy {
     if (u >= 1) { this.reset(); return; }  // flew out of the fight
 
     this.updateJuke(dt, projectiles);
+    _v.subVectors(playerPos, frame.position);
+    this._playerLocal.set(_v.dot(frame.right), _v.dot(frame.up), _v.dot(frame.forward));
     this.placeOnPlan(frame);
 
     // World velocity → heading. Smoothed to kill spline jitter.
@@ -338,6 +349,13 @@ export class Enemy {
     const u = THREE.MathUtils.clamp(this._t / plan.duration, 0, 1);
     plan.curve.getPointAt(u, this._local);
     this._local.add(this._juke);
+    // Suicide run: past its commit point the pilot bends its path onto the
+    // ship (rail-local, so it tracks the player through every turn).
+    if (this.kamikaze && u >= this._homeAt && this._local.z > -4) {
+      this._homing = Math.min(1, this._homing + 0.012);
+      this._homeLocal.lerp(this._playerLocal, 0.08);
+      this._local.lerp(this._homeLocal, this._homing * this._homing);
+    }
     if (this._tunnelRadius > 0) {
       const r = Math.hypot(this._local.x, this._local.y);
       const max = this._tunnelRadius * 0.85;

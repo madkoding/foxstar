@@ -1,12 +1,40 @@
-# FOXSTAR
+# FOXSTAR: El Eco del Leviatán
 
-Rail shooter estilo **Star Fox** hecho en **Three.js 0.160 + TypeScript 5.4 + Vite 8**. La cámara avanza por un riel mientras pilotas tu nave, esquivas oleadas de enemigos y te enfrentas a un boss final en el espacio profundo.
+Rail shooter estilo **Star Fox** hecho en **Three.js 0.160 + TypeScript 5.4 + Vite 8**, con una campaña narrativa de **8 etapas**, un jefe final y **dos finales**.
 
-## Descripción
+## Historia
 
-FoxStar es un shooter sobre raíles: la cámara se desliza por un corredor espacial mientras tú controlas la nave dentro de ese riel. Tienes **3 vidas + escudos + power-ups**, y te enfrentas a **3 patrones de enemigos** (DiveBomb, Circle y Sweep) antes de llegar al **boss final (Mothership)**.
+> ⚠️ Esta sección contiene spoilers de toda la trama.
 
-Todo con música de fondo original (**Starfall Vanguard**) y un sistema de efectos completo: nebulosas, campo de estrellas, explosiones, partículas y efectos de pantalla.
+**La premisa (la mentira):** eres el comandante **«Mad»** de la Vanguardia de Orión. Un sistema planetario ha sido "corrompido" por **el Enjambre** y llevas un **Dispositivo de Resonancia** para purgarlo. Tu IA de a bordo, **Lyra**, te guía con voz calmada.
+
+**La verdad:** no hay corrupción. El planeta es un ser vivo, el "Enjambre" es su sistema inmune y tú eres la sonda de una civilización parásita que viene a cosecharlo.
+
+| # | Etapa | Bioma | Mecánica | Beat narrativo |
+|---|-------|-------|----------|----------------|
+| 1 | El Valle de los Susurros | valle + agua | vuelo suave, tutorial de barrel roll | Lyra cálida: "purifica el agua" |
+| 2 | Las Cumbres de la Bruma | nieve | **vientos cruzados** que sacan la nave del riel, nevada | "guardianes del viento ciegos por la plaga" |
+| 3 | El Bosque de Esporas | cañón con árboles gigantes y hongos bioluminiscentes | obstáculos densos, esporas | primer desliz: "bosque esterilizado… purificado" |
+| 4 | Las Cuevas de Cristal | cueva | **láseres que rebotan** en las paredes | **primer glitch**: los cristales no crujen, *cantan* una nota triste |
+| 5 | El Río de Lava | lava | velocidad ×1.35, DiveBomb, **distorsión por calor** | Lyra urgente; el sensor lee 37,2 °C |
+| 6 | La Ciudad Viva | ciudad nocturna | los enemigos **disparan a tus proyectiles** (contención); la **bomba invierte el espectro** 0,5 s | la duda: "no apuntan a la nave" |
+| 7 | El Cinturón de Aurora | espacio | **ataques suicidas**, Interceptores y Bombarderos | cae la máscara: "el planeta debe ser cosechado" |
+| 8 | El Corazón del Leviatán | interior orgánico | riel errático, el escenario **late**; jefe **El Guardián** | la revelación total y la elección final |
+
+- **Dos voces** en el panel de comunicaciones: **LYRA** (cálida → urgente → fría y metálica; su estado re-colorea todo el HUD) y **SENSOR · SIN FILTRAR**, las lecturas crudas de la nave que se le escapan.
+- **El Guardián** no intenta matarte: fase 1 levanta muros de abanico/anillo y te **empuja hacia atrás**; fase 2 es dolor, no furia. No se puede destruir con fuego normal: queda **expuesto** e indefenso.
+- **La elección final:** `FUEGO` obedece a Lyra (final **La Cosecha**: el mundo pierde el color, silencio, créditos grises). `BOMBA` gira la nave y lanza todas tus bombas contra tu propio Dispositivo de Resonancia (final **FoxStar**: Lyra se apaga entre estática, el Guardián te envuelve en aurora y vuelas libre, sin armas, junto a los que antes eran enemigos).
+- Si pierdes todas las vidas, **reintentar** continúa en la etapa actual. Para probar una etapa concreta: `?stage=N` (1–8).
+- **Progreso guardado:** el menú ofrece `CONTINUAR · ETAPA N` (se guarda en el navegador al entrar a cada etapa y se borra al ver un final).
+
+### Contada como una película
+
+- **Cámaras de cine** (`CameraRig.playShots` + `story/Cinematics.ts`): cada etapa abre con un plano de establecimiento y un plano cercano antes de cortar a la vista de cabina, y cierra con un fly-by y una grúa trasera durante el salto. La entrada del Guardián, su fase de dolor, la elección (plano de perfil de ambos + primer plano del corazón expuesto), los dos finales y el epílogo tienen su propia lista de planos unidos por corte.
+- **Modo cine:** barras de letterbox, HUD oculto, controles bloqueados, nave invulnerable y las líneas de Lyra como **subtítulos** en la barra inferior.
+- **Planos de reacción** dentro del juego: el primer cristal que "canta" (etapa 4) y la primera bomba sobre la ciudad (etapa 6).
+- **Voz de Lyra** con la síntesis de voz del navegador en español (ritmo y tono según su estado; grave y metálica al final). Sin voz en español disponible, o con `?voice=0`, vuelve a los blips.
+- **Música original sintetizada** (`audio/ScoreSynth.ts`): lamento en re menor para el dolor del Guardián y la elección; tema cálido en re mayor para el epílogo.
+- **Cielos pintados por código** (`environment/PaintedSky.ts`) para el bosque y el núcleo; **copos que se derriten en el cristal** en las cumbres; el **Guardián, sano, vigila el epílogo**.
 
 ## Ejecutar
 
@@ -18,6 +46,12 @@ npm run dev
 ```
 
 Abrir la URL que indica Vite (por defecto `http://localhost:5173`).
+
+Tests del guion (coherencia de etapas, líneas, eventos y planos):
+
+```bash
+npm test
+```
 
 Para una build de producción:
 
@@ -45,7 +79,8 @@ El esquema activo (mouse o teclado/gamepad/táctil) sigue al último dispositivo
 - **Post-procesado cinematográfico**: bloom a media resolución + pase propio con aberración cromática radial, zoom blur, viñeta, grano, scanlines, flashes y viñeta de latido con poca vida.
 - **FxDirector**: hit-stop en impactos, slow-motion (bomba, muerte, boss), pulsos de FOV, bloom y aberración que se apilan y decaen de forma coherente.
 - **Cámara con trauma**: shake por ruido suave (posición + rotación), seguimiento independiente del framerate, roll siguiendo a la nave y órbita cinematográfica en el menú.
-- **Secuencias**: entrada en warp con título "SECTOR XX", alerta WARNING del boss con franjas y klaxon, MISSION COMPLETE con conteo de bonus y salto al hiperespacio al siguiente sector.
+- **Secuencias**: briefing de misión, entrada en warp con título "ETAPA XX", alerta del Guardián, cierre de etapa con conteo de bonus, elección final, dos finales y epílogo.
+- **Glitches narrativos**: `FxDirector.truthPulse()` (espectro invertido + desgarro de imagen), `setHeat()` (refracción por calor) y un frame corrupto del HUD.
 - **HUD vivo**: puntaje que rueda, barras con rastro de daño, combo con temporizador por niveles de color, medidor de boost, hit-markers y lock-on que magnetiza la mira, popups de puntaje en el punto de cada kill.
 - **Nave**: barrel roll con burbuja de escudo fresnel, afterburner que crece con el boost, parpadeo de invencibilidad.
 - **Enemigos y boss**: aparición con rebote, squash al recibir daño, flash blanco real, boss que sigue el riel con patrones por fase (abanico y anillo giratorio).
@@ -76,7 +111,7 @@ El esquema activo (mouse o teclado/gamepad/táctil) sigue al último dispositivo
 
 ```
 src/
-├── audio/        # AudioManager, MusicPlayer (Starfall Vanguard)
+├── audio/        # AudioManager (incl. lamento de cristal, voz de Lyra, estática), MusicPlayer
 ├── camera/       # CameraRig, PostProcessingPipeline
 ├── core/         # Game, StateManager, CollisionSystem, EventBus,
 │                 # GameEventBinder, ScoreSystem, Timekeeper, ...
@@ -87,10 +122,12 @@ src/
 │                 # ParticleManager, ScreenEffects, HitSpark, ...
 ├── player/       # PlayerShip, InputMapper, FoxTail, PlayerLifeManager,
 │                 # PlayerShipMeshFactory
+├── levels/       # LevelData (8 etapas + mecánicas), LevelManager
 ├── rail/         # RailFactory, RailController
+├── story/        # StoryData (guion), StoryDirector (cuándo se dice cada línea)
 ├── types/        # config, events, index
 ├── ui/           # HUD, Announcer, ScorePopups, MenuScreen, PauseOverlay, GameOverScreen,
-│                 # VictoryScreen, LivesDisplay, iconRow
+│                 # EndingScreen, Briefing, CommsPanel, ChoicePrompt, LivesDisplay, iconRow
 ├── utils/        # ObjectPool
 ├── waves/        # WaveDefinition, WaveManager
 └── weapons/      # Projectile, WeaponConfig, WeaponSystem
@@ -101,7 +138,8 @@ src/
 - **Arquitectura por módulos**: el juego está separado en dominios claros (`rail`, `enemies`, `player`, `fx`, `core`, `ui`, `weapons`, `waves`), cada uno con responsabilidad única.
 - **Refactor SOLID / KISS / DRY**: se aplicó una pasada de limpieza que renombró variables de un solo carácter y encapsuló la IA de los enemigos en métodos `updateCombat()` / `configure()`, dejando cada patrón autocontenido.
 - **Patrones de enemigos**: cada patrón (DiveBomb, Circle, Sweep) hereda de `PatternBase` y define su propio comportamiento de movimiento y combate.
-- **Boss final**: `BossMothership` extiende `BossBase` y cierra la partida con un enfrentamiento dedicado.
+- **Boss final**: `BossMothership` (El Guardián) extiende `BossBase`; al agotarse emite `BOSS_EXPOSED` y `Game` toma el control con la secuencia de elección.
+- **Narrativa desacoplada**: todo el texto vive en `story/StoryData.ts`; `StoryDirector` lo dispara por progreso del riel (`beats`) o por acciones del jugador (`events`, una vez por etapa). Las reglas de cada etapa son datos (`StageMechanics` en `LevelData.ts`).
 - **Sistema de vidas**: `PlayerLifeManager` gestiona las 3 vidas, los escudos y los power-ups.
 - **Audio**: la banda sonora original se carga desde `public/` y se gestiona a través de `AudioManager` / `MusicPlayer`.
 - **Pooling**: `ObjectPool` reutiliza objetos (proyectiles, partículas) para evitar picos de garbage collection.

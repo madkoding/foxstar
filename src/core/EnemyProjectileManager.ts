@@ -20,7 +20,16 @@ interface EnemyProjectile {
   mesh: THREE.Mesh;
   active: boolean;
   deflected: boolean;
+  /** Containment shot: hunts one of the player's lasers, harmless to the ship. */
+  target: InterceptTarget | null;
   age: number;
+}
+
+/** Minimal view of a player projectile (avoids importing the weapon module). */
+export interface InterceptTarget {
+  readonly active: boolean;
+  readonly position: THREE.Vector3;
+  deactivate(): void;
 }
 
 const _seg = new THREE.Vector3();
@@ -46,6 +55,9 @@ export class EnemyProjectileManager {
   private deflectMat: THREE.MeshBasicMaterial;
   /** World positions of bolts deflected this frame (for spark FX). */
   readonly deflections: THREE.Vector3[] = [];
+  /** World positions where a containment bolt cancelled a player laser. */
+  readonly intercepts: THREE.Vector3[] = [];
+  private interceptMat: THREE.MeshBasicMaterial;
 
   constructor(private audio: AudioManager, scene: THREE.Scene, poolSize = 80) {
     this.scene = scene;
@@ -62,6 +74,9 @@ export class EnemyProjectileManager {
     this.deflectMat = new THREE.MeshBasicMaterial({
       color: 0x66ffff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false,
     });
+    this.interceptMat = new THREE.MeshBasicMaterial({
+      color: 0x9fd8ff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false,
+    });
     for (let i = 0; i < poolSize; i++) {
       const mesh = new THREE.Mesh(this.geo, this.coreMat);
       const halo = new THREE.Mesh(this.haloGeo, this.haloMat);
@@ -72,24 +87,29 @@ export class EnemyProjectileManager {
       scene.add(mesh);
       this.projectiles.push({
         position: new THREE.Vector3(), prev: new THREE.Vector3(), velocity: new THREE.Vector3(),
-        mesh, active: false, deflected: false, age: 0,
+        mesh, active: false, deflected: false, target: null, age: 0,
       });
     }
   }
 
-  spawn(position: THREE.Vector3, direction: THREE.Vector3, speed = BOLT_SPEED): void {
+  /**
+   * @param target when set, the bolt is a containment shot aimed at that
+   * player laser: it cancels it on contact and never hurts the ship.
+   */
+  spawn(position: THREE.Vector3, direction: THREE.Vector3, speed = BOLT_SPEED, target: InterceptTarget | null = null): void {
     const slot = this.projectiles.find(p => !p.active);
     if (!slot) return;
     this.audio.playEnemyLaser();
     slot.active = true;
     slot.deflected = false;
+    slot.target = target;
     slot.age = 0;
     slot.position.copy(position);
     slot.prev.copy(position);
     slot.velocity.copy(direction).normalize().multiplyScalar(speed);
     slot.mesh.position.copy(position);
     slot.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), _seg.copy(slot.velocity).normalize());
-    (slot.mesh.children[0] as THREE.Mesh).material = this.haloMat;
+    (slot.mesh.children[0] as THREE.Mesh).material = target ? this.interceptMat : this.haloMat;
     slot.mesh.visible = true;
   }
 
@@ -100,6 +120,7 @@ export class EnemyProjectileManager {
   update(dt: number, playerPos: THREE.Vector3, deflecting = false, invulnerable = false): { hit: boolean } {
     let hit = false;
     this.deflections.length = 0;
+    this.intercepts.length = 0;
     const hitRadius = PLAYER.HITBOX_RADIUS;
     const deflectRadius = PLAYER.HITBOX_RADIUS * 2.4;
 
@@ -115,6 +136,23 @@ export class EnemyProjectileManager {
         continue;
       }
       if (p.deflected) continue;
+
+      if (p.target) {
+        const t = p.target;
+        if (!t.active) { p.target = null; this.kill(p); continue; }
+        // Steer onto the laser (both are fast: without homing they'd miss).
+        const speed = p.velocity.length();
+        _toP.subVectors(t.position, p.position);
+        const dist = _toP.length();
+        if (dist < 2.2 || segmentDistance(t.position, p.prev, p.position) < 2.2) {
+          this.intercepts.push(t.position.clone());
+          t.deactivate();
+          this.kill(p);
+          continue;
+        }
+        p.velocity.lerp(_toP.multiplyScalar(speed / dist), Math.min(1, dt * 14)).setLength(speed);
+        continue;
+      }
 
       const d = segmentDistance(playerPos, p.prev, p.position);
       if (deflecting && d < deflectRadius) {
@@ -138,6 +176,7 @@ export class EnemyProjectileManager {
 
   private kill(p: EnemyProjectile): void {
     p.active = false;
+    p.target = null;
     p.mesh.visible = false;
   }
 
@@ -152,6 +191,7 @@ export class EnemyProjectileManager {
     this.coreMat.dispose();
     this.haloMat.dispose();
     this.deflectMat.dispose();
+    this.interceptMat.dispose();
     this.projectiles = [];
   }
 }

@@ -33,6 +33,27 @@ export function baseFovFor(aspect: number): number {
   return Math.min(100, THREE.MathUtils.radToDeg(half * 2));
 }
 
+/**
+ * One film shot. Offsets are in the rail frame of the subject:
+ * [right, up, forward]. Consecutive shots are joined by hard cuts.
+ */
+export interface Shot {
+  duration: number;
+  from: [number, number, number];
+  /** Dolly/crane end offset (defaults to `from`: a locked-off shot). */
+  to?: [number, number, number];
+  /** What the offsets are measured from (default: the ship). */
+  at?: 'ship' | 'target';
+  /** 0 = look at the ship, 1 = at the target, in between = both in frame. */
+  lookMix?: number;
+  lookOffset?: [number, number, number];
+  /** The camera stays where the shot began and the action passes it by. */
+  fixed?: boolean;
+  /** FOV change in degrees (negative = longer lens). */
+  fov?: number;
+  roll?: number;
+}
+
 export class CameraRig {
   private camera: THREE.PerspectiveCamera;
   // Same pose as the render camera but without shake / FOV kicks. Gameplay
@@ -58,6 +79,20 @@ export class CameraRig {
   private _railUp = new THREE.Vector3(0, 1, 0);
   private _curveRoll = 0;
   private _cross = new THREE.Vector3();
+
+  // Film shots (cutscenes). While one plays, the RENDER camera leaves the
+  // chase pose; `stable` keeps flying the chase so gameplay mapping is intact.
+  private _shots: Shot[] = [];
+  private _shotIndex = 0;
+  private _shotTime = 0;
+  private _shotStarted = false;
+  private _fixedPos = new THREE.Vector3();
+  private _subject = new THREE.Vector3();
+  private _shotTarget: THREE.Vector3 | null = null;
+  private _shotPos = new THREE.Vector3();
+  private _shotLook = new THREE.Vector3();
+  /** Keeps a cutscene camera out of the ground / walls (set by Game). */
+  constrain: ((pos: THREE.Vector3) => void) | null = null;
 
   // Attract-mode orbit (menu)
   private _orbitAngle = 0;
@@ -149,12 +184,90 @@ export class CameraRig {
     }
     this._pitch = THREE.MathUtils.lerp(this._pitch, this._pitchTarget, 1 - Math.exp(-4 * dt));
 
-    this.camera.position.copy(this._chasePos);
-    this.camera.lookAt(this._chaseLook);
-    this.camera.rotateZ(this._roll + this._curveRoll);
-    this.camera.rotateX(this._pitch);
-    this.syncStable();
+    this.stable.position.copy(this._chasePos);
+    this.stable.lookAt(this._chaseLook);
+    this.stable.rotateZ(this._roll + this._curveRoll);
+    this.stable.rotateX(this._pitch);
+    this.stable.updateMatrixWorld(true);
+
+    const shot = this.advanceShot(dt);
+    if (shot) {
+      this.poseShot(shot);
+    } else {
+      this.camera.position.copy(this.stable.position);
+      this.camera.quaternion.copy(this.stable.quaternion);
+    }
     this.applyShake(dt);
+  }
+
+  // ── Film shots ────────────────────────────────────────────────────────────
+
+  /** Where the ship is (shots frame it; the chase camera ignores it). */
+  setSubject(pos: THREE.Vector3): void {
+    this._subject.copy(pos);
+  }
+
+  /**
+   * Cut to a sequence of shots; when the last one ends the camera cuts back
+   * to the chase view. `target` is a second point of interest (the Guardian).
+   */
+  playShots(shots: Shot[], target: THREE.Vector3 | null = null): void {
+    this._shots = shots;
+    this._shotIndex = 0;
+    this._shotTime = 0;
+    this._shotStarted = false;
+    this._shotTarget = target;
+  }
+
+  endShots(): void {
+    this._shots = [];
+    this._shotIndex = 0;
+  }
+
+  get shotActive(): boolean { return this._shotIndex < this._shots.length; }
+  get shotFov(): number { return this._shots[this._shotIndex]?.fov ?? 0; }
+
+  private advanceShot(dt: number): Shot | null {
+    let shot = this._shots[this._shotIndex];
+    if (!shot) return null;
+    this._shotTime += dt;
+    while (shot && this._shotTime >= shot.duration) {
+      this._shotTime -= shot.duration;
+      this._shotIndex++;
+      this._shotStarted = false;
+      shot = this._shots[this._shotIndex];
+    }
+    if (!shot) { this.endShots(); return null; }
+    return shot;
+  }
+
+  private poseShot(shot: Shot): void {
+    const base = shot.at === 'target' && this._shotTarget ? this._shotTarget : this._subject;
+    const span = Number.isFinite(shot.duration) ? shot.duration : 10;
+    const u = THREE.MathUtils.smootherstep(Math.min(1, this._shotTime / span), 0, 1);
+    const a = shot.from, b = shot.to ?? shot.from;
+    if (!shot.fixed || !this._shotStarted) {
+      this._right.crossVectors(this._fwd, this._railUp).normalize();
+      this._shotPos.copy(base)
+        .addScaledVector(this._right, a[0] + (b[0] - a[0]) * u)
+        .addScaledVector(this._railUp, a[1] + (b[1] - a[1]) * u)
+        .addScaledVector(this._fwd, a[2] + (b[2] - a[2]) * u);
+      this.constrain?.(this._shotPos);
+      if (shot.fixed) this._fixedPos.copy(this._shotPos);
+    }
+    if (shot.fixed) this._shotPos.copy(this._fixedPos);
+    this._shotStarted = true;
+
+    this._shotLook.copy(this._subject);
+    if (this._shotTarget && shot.lookMix) this._shotLook.lerp(this._shotTarget, shot.lookMix);
+    const o = shot.lookOffset;
+    if (o) {
+      this._right.crossVectors(this._fwd, this._railUp).normalize();
+      this._shotLook.addScaledVector(this._right, o[0]).addScaledVector(this._railUp, o[1]).addScaledVector(this._fwd, o[2]);
+    }
+    this.camera.position.copy(this._shotPos);
+    this.camera.lookAt(this._shotLook);
+    if (shot.roll) this.camera.rotateZ(shot.roll);
   }
 
   /** Slow cinematic orbit around a point — used behind the menu. */
@@ -207,5 +320,6 @@ export class CameraRig {
     this._roll = this._rollTarget = 0;
     this._pitch = this._pitchTarget = 0;
     this._initialized = false;
+    this.endShots();
   }
 }

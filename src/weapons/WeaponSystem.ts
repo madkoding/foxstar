@@ -46,6 +46,14 @@ export class WeaponSystem {
     this.eventBus.emit(GameEvent.BOMB_COUNT_CHANGED, { count: this._bombs });
   }
 
+  /** Good ending: every remaining bomb is spent at once. Returns how many. */
+  spendAllBombs(): number {
+    const n = this._bombs;
+    this._bombs = 0;
+    this.eventBus.emit(GameEvent.BOMB_COUNT_CHANGED, { count: 0 });
+    return n;
+  }
+
   // Find an inactive projectile to reuse
   private acquireProj(): Projectile | null {
     return this.projectiles.find(p => !p.active) ?? null;

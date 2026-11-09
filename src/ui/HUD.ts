@@ -82,7 +82,7 @@ export class HUD {
         </div>
       </div>
       <div class="hud-bottom hud-slide-up">
-        <div id="wave-display" class="hud-wave">WAVE 1/3</div>
+        <div id="wave-display" class="hud-wave">OLEADA 1/3</div>
         <div id="boost-wrap" class="hud-boost">
           <span class="hud-bomb-label">BOOST</span>
           <div class="hud-boost-bg"><div id="boost-bar" class="hud-boost-bar"></div></div>
@@ -97,8 +97,7 @@ export class HUD {
         <div class="hud-boss-health-bg">
           <div id="boss-trail" class="hud-boss-trail"></div>
           <div id="boss-health-bar" class="hud-boss-health"></div>
-          <div class="hud-boss-tick" style="left:33.3%"></div>
-          <div class="hud-boss-tick" style="left:66.6%"></div>
+          <div class="hud-boss-tick" style="left:50%"></div>
         </div>
       </div>
       <div id="crosshair">
@@ -178,7 +177,7 @@ export class HUD {
   }
 
   private updateWave(wave: number, total: number): void {
-    this.waveElement.textContent = `WAVE ${wave}/${total}`;
+    this.waveElement.textContent = `OLEADA ${wave}/${total}`;
     this.kick(this.waveElement, 'wave-flash');
   }
 

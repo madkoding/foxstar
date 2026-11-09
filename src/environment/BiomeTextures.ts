@@ -28,6 +28,8 @@ const SPECS: Record<TerrainType, TextureSpec> = {
   city:       { base: [70, 80, 100], tint: [160, 180, 210],freq: 0.07, octaves: 4, contrast: 0.7 },
   void:       { base: [45, 45, 50],  tint: [95, 95, 105], freq: 0.06, octaves: 4, contrast: 0.7 },
   aurora:     { base: [80, 130, 120],tint: [190, 245, 225],freq: 0.05, octaves: 4, contrast: 0.65 },
+  forest:     { base: [70, 110, 62], tint: [150, 200, 120], freq: 0.06, octaves: 5, contrast: 0.8 },
+  core:       { base: [110, 80, 170],tint: [200, 170, 255], freq: 0.05, octaves: 5, contrast: 0.75 },
 };
 
 const SIZE = 256;
