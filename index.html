@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#02040a" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <title>FoxStar</title>
+  <title>FoxStar: El Eco del Leviatán</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Audiowide&family=Chakra+Petch:wght@400;600;700&display=swap" rel="stylesheet" />
@@ -18,9 +18,9 @@
     <div id="hud"></div>
     <div id="menu-screen" class="screen hidden">
       <div class="menu-content">
-        <div class="menu-kicker">RAIL SHOOTER · 20 SECTORES</div>
+        <div class="menu-kicker">EL ECO DEL LEVIATÁN · 8 ETAPAS</div>
         <h1 class="game-title">FOXSTAR</h1>
-        <div class="menu-sub">Defiende la galaxia. Haz un barrel roll.</div>
+        <div id="menu-sub" class="menu-sub">Purga la corrupción. Restaura el orden.</div>
         <button id="start-button" class="menu-button primary">INICIAR MISIÓN</button>
         <div class="press-hint desktop-only">PRESIONA <kbd>ENTER</kbd></div>
         <div id="menu-best" class="menu-best"></div>
@@ -58,11 +58,20 @@
         <button id="gameover-menu-button" class="menu-button">MENÚ</button>
       </div>
     </div>
-    <div id="victory-screen" class="screen hidden">
-      <div class="menu-content">
-        <h2 class="victory-title">VICTORIA</h2>
-        <p id="victory-score" class="score-display">Puntuación: 0</p>
-        <button id="victory-continue-button" class="menu-button primary">CONTINUAR</button>
+    <div id="briefing-screen" class="screen hidden">
+      <div class="menu-content briefing-content">
+        <div id="briefing-lines" class="briefing-lines"></div>
+        <button id="briefing-button" class="menu-button primary">DESPEGAR</button>
+        <div class="press-hint desktop-only">PRESIONA <kbd>ENTER</kbd></div>
+      </div>
+    </div>
+    <div id="ending-screen" class="screen hidden">
+      <div class="menu-content ending-content">
+        <div id="ending-kicker" class="menu-kicker"></div>
+        <h2 id="ending-title" class="ending-title"></h2>
+        <div id="ending-lines" class="ending-lines"></div>
+        <p id="ending-score" class="score-display small">Puntuación: 0</p>
+        <button id="ending-button" class="menu-button">VOLVER AL MENÚ</button>
       </div>
     </div>
     <div id="damage-overlay" class="damage-flash hidden"></div>
@@ -73,6 +82,11 @@
     <div id="lives-display"></div>
     <div id="vignette-overlay"></div>
     <div id="announcer"></div>
+    <div id="comms"></div>
+    <div id="choice" class="hidden">
+      <div class="choice-opt choice-obey"><kbd>FUEGO</kbd><span>Disparar al núcleo</span></div>
+      <div class="choice-opt choice-defy"><kbd>BOMBA</kbd><span id="choice-defy-text"></span></div>
+    </div>
   </div>
   <script type="module" src="/src/main.ts"></script>
 </body>

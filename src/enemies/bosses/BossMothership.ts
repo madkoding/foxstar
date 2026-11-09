@@ -1,401 +1,381 @@
-// ─── Boss Mothership ─────────────────────────────────────────────────────────
+// ─── The Guardian (final boss) ───────────────────────────────────────────────
+//
+// Not a warship: the planet's last immune response. An organic, luminous
+// being — a pulsing heart of light inside translucent petals, crowned with
+// antlers of energy and trailing slow ribbons. It never tries to kill: its
+// volleys are walls meant to turn the ship back, and it periodically shoves
+// the intruder away with a harmless pulse.
+//
+// It cannot be destroyed by ordinary fire. When its strength is spent it is
+// left EXPOSED and defenceless, and the game hands the decision to the
+// player (see Game: the final choice).
 
 import * as THREE from 'three';
 import { BOSS } from '../../types/config';
+import { GameEvent } from '../../types/events';
+import { getSoftParticleTexture } from '../../fx/softTexture';
 import { BossBase } from './BossBase';
+
+const CALM = new THREE.Color(0x7fe8d8);
+const PAIN = new THREE.Color(0xff5c9a);
+const GOLD = new THREE.Color(0xffe2a0);
+/** Health fraction at which the Guardian collapses, exposed. */
+const EXPOSE_AT = 0.06;
+const PULSE_EVERY = 9;
 
 export class BossMothership extends BossBase {
   // Assigned in buildMesh(), which runs from the base constructor. With
   // useDefineForClassFields (ES2022), plain field declarations would clobber
   // them with `undefined` after super(), so declare them as ambient.
-  private declare turrets: THREE.Mesh[];
+  private declare emitters: THREE.Object3D[];
   private declare core: THREE.Mesh;
-  private declare shield: THREE.Mesh;
-  private declare hullMat: THREE.MeshPhongMaterial;
   private declare coreHalo: THREE.Sprite;
+  private declare petals: THREE.Mesh[];
+  private declare petalMat: THREE.MeshStandardMaterial;
+  private declare antlerMat: THREE.MeshStandardMaterial;
+  private declare ribbons: THREE.Mesh[];
+  private declare ribbonMat: THREE.MeshBasicMaterial;
+  private declare aura: THREE.Mesh;
+  private declare ring: THREE.Mesh;
+
   private attackTimer = 0;
-  private attackInterval = 2;
-  private volleyEven = false;
+  private attackInterval = 2.4;
   private volleyCount = 0;
   private hitFlash = 0;
+  private pulseTimer = 0;
+  private _exposed = false;
+  private _pacified = false;
+  private _pain = 0;       // 0 calm → 1 agony (drives colour + tremor)
   private _desired = new THREE.Vector3();
+  private _tint = new THREE.Color();
 
   constructor() {
     super(BOSS.MOTHERSHIP);
   }
 
   protected buildMesh(): void {
-    // Field initializers run AFTER the base constructor calls buildMesh(),
-    // so initialize these arrays here.
-    this.turrets = [];
+    this.emitters = [];
+    this.petals = [];
+    this.ribbons = [];
+    const R = this._size;
 
-    // ── Main body (large disc-like hull) ──
-    const bodyMat = new THREE.MeshPhongMaterial({
-      color: this._color,
-      emissive: this._color,
-      emissiveIntensity: 0.2,
-      shininess: 40,
-    });
-
-    // Central hull (flattened sphere)
-    const hullGeo = new THREE.SphereGeometry(this._size * 0.6, 16, 12);
-    this.hullMat = bodyMat;
-    const hull = new THREE.Mesh(hullGeo, bodyMat);
-    hull.scale.set(1.8, 0.5, 1.2);
-    this.group.add(hull);
-
-    // Upper deck
-    const deckMat = new THREE.MeshPhongMaterial({
-      color: 0x884422,
-      emissive: 0x442211,
-      emissiveIntensity: 0.1,
-    });
-    const deckGeo = new THREE.CylinderGeometry(this._size * 0.8, this._size * 0.9, 0.3, 16);
-    const deck = new THREE.Mesh(deckGeo, deckMat);
-    deck.position.y = this._size * 0.3;
-    this.group.add(deck);
-
-    // Lower hull panels
-    const panelMat = new THREE.MeshPhongMaterial({
-      color: 0x664422,
-      emissive: 0x221100,
-      emissiveIntensity: 0.1,
-    });
-    for (let idx = 0; idx < 6; idx++) {
-      const angle = (idx / 6) * Math.PI * 2;
-      const panelGeo = new THREE.BoxGeometry(0.8, 0.1, 1.5);
-      const panel = new THREE.Mesh(panelGeo, panelMat);
-      panel.position.set(
-        Math.cos(angle) * this._size * 0.7,
-        -this._size * 0.2,
-        Math.sin(angle) * this._size * 0.5
-      );
-      panel.rotation.y = -angle;
-      this.group.add(panel);
-    }
-
-    // ── Core (glowing sphere) ──
-    const coreMat = new THREE.MeshBasicMaterial({
-      color: 0xff8844,
-      transparent: true,
-      opacity: 0.8,
-    });
-    const coreGeo = new THREE.SphereGeometry(this._size * 0.25, 12, 12);
-    this.core = new THREE.Mesh(coreGeo, coreMat);
-    this.core.position.y = 0.5;
+    // ── Heart of light ──
+    this.core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(R * 0.3, 3),
+      new THREE.MeshBasicMaterial({ color: 0xfff6e0, transparent: true, opacity: 0.95 }),
+    );
     this.group.add(this.core);
-
-    // Pulsing reactor halo (bloom makes it bleed light).
-    const haloCanvas = document.createElement('canvas');
-    haloCanvas.width = haloCanvas.height = 64;
-    const hctx = haloCanvas.getContext('2d')!;
-    const hg = hctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-    hg.addColorStop(0, 'rgba(255,255,255,1)');
-    hg.addColorStop(0.3, 'rgba(255,200,140,0.6)');
-    hg.addColorStop(1, 'rgba(255,120,40,0)');
-    hctx.fillStyle = hg;
-    hctx.fillRect(0, 0, 64, 64);
     this.coreHalo = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: new THREE.CanvasTexture(haloCanvas), color: 0xff8844, transparent: true,
+      map: getSoftParticleTexture(), color: CALM.getHex(), transparent: true,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }));
-    this.coreHalo.position.y = 0.5;
-    this.coreHalo.scale.setScalar(this._size * 1.4);
+    this.coreHalo.scale.setScalar(R * 2.2);
     this.group.add(this.coreHalo);
 
-    // Core ring (rotating)
-    const ringMat = new THREE.MeshPhongMaterial({
-      color: 0xff8844,
-      emissive: 0xff4400,
-      emissiveIntensity: 0.5,
-      transparent: true,
-      opacity: 0.6,
+    // ── Petals: translucent shells cupping the heart, like a closed flower ──
+    this.petalMat = new THREE.MeshStandardMaterial({
+      color: 0xdff8f0, emissive: CALM.getHex(), emissiveIntensity: 0.55,
+      roughness: 0.35, metalness: 0, transparent: true, opacity: 0.78, side: THREE.DoubleSide,
     });
-    const ringGeo = new THREE.TorusGeometry(this._size * 0.4, 0.05, 8, 24);
-    const ring = new THREE.Mesh(ringGeo, ringMat);
-    ring.position.y = 0.5;
-    ring.rotation.x = Math.PI / 2;
-    this.group.add(ring);
-
-    // ── Shield bubble: fresnel rim + scrolling hex cells, transparent core ──
-    const shieldMat = new THREE.ShaderMaterial({
-      uniforms: {
-        uColor: { value: new THREE.Color(0x44aaff) },
-        uTime: { value: 0 },
-        uHit: { value: 0 },
-        uOpacity: { value: 1 },
-      },
-      vertexShader: /* glsl */ `
-        varying vec3 vN; varying vec3 vV; varying vec3 vP;
-        void main() {
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          vN = normalize(normalMatrix * normal);
-          vV = normalize(-mv.xyz);
-          vP = position;
-          gl_Position = projectionMatrix * mv;
-        }
-      `,
-      fragmentShader: /* glsl */ `
-        uniform vec3 uColor; uniform float uTime; uniform float uHit; uniform float uOpacity;
-        varying vec3 vN; varying vec3 vV; varying vec3 vP;
-        float hex(vec2 p) {
-          p = abs(p);
-          return max(p.x * 0.866 + p.y * 0.5, p.y);
-        }
-        void main() {
-          float rim = pow(1.0 - abs(dot(vN, vV)), 2.5);
-          vec3 n = normalize(vP);
-          vec2 uv = vec2(atan(n.z, n.x) * 3.0, n.y * 5.0 + uTime * 0.3);
-          vec2 cell = vec2(1.0, 1.732);
-          vec2 a = mod(uv, cell) - cell * 0.5;
-          vec2 b = mod(uv - cell * 0.5, cell) - cell * 0.5;
-          vec2 g = dot(a, a) < dot(b, b) ? a : b;
-          float edge = smoothstep(0.42, 0.48, hex(g));
-          float scan = 0.5 + 0.5 * sin(n.y * 12.0 - uTime * 3.0);
-          float alpha = (rim * 0.9 + edge * (0.12 + rim * 0.5) * scan + uHit * (0.25 + edge * 0.6)) * uOpacity;
-          gl_FragColor = vec4(uColor * (1.4 + uHit * 2.0), alpha);
-        }
-      `,
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-    });
-    const shieldGeo = new THREE.SphereGeometry(this._size * 0.9, 40, 28);
-    this.shield = new THREE.Mesh(shieldGeo, shieldMat);
-    this.group.add(this.shield);
-
-    // ── Turrets ──
-    const turretMat = new THREE.MeshPhongMaterial({
-      color: 0xcc3333,
-      emissive: 0xff4444,
-      emissiveIntensity: 0.3,
-    });
-    const turretPositions = [
-      new THREE.Vector3(-3, 0.5, 2),
-      new THREE.Vector3(3, 0.5, 2),
-      new THREE.Vector3(-2.5, -0.3, -2),
-      new THREE.Vector3(2.5, -0.3, -2),
-      new THREE.Vector3(-1.5, 0.8, 0),
-      new THREE.Vector3(1.5, 0.8, 0),
-    ];
-    for (const pos of turretPositions) {
-      // Turret base
-      const baseGeo = new THREE.CylinderGeometry(0.3, 0.5, 0.4, 6);
-      const base = new THREE.Mesh(baseGeo, turretMat);
-      base.position.copy(pos);
-      this.group.add(base);
-
-      // Turret barrel
-      const barrelMat = new THREE.MeshPhongMaterial({
-        color: 0x888888,
-        emissive: 0x444444,
-        emissiveIntensity: 0.2,
-      });
-      const barrelGeo = new THREE.CylinderGeometry(0.08, 0.12, 0.5, 6);
-      const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-      barrel.position.set(pos.x, pos.y + 0.3, pos.z);
-      barrel.rotation.x = Math.PI / 2;
-      this.group.add(barrel);
-
-      // Store turret mesh for reference
-      this.turrets.push(base);
+    const petalGeo = new THREE.SphereGeometry(R * 0.62, 20, 14, 0, Math.PI * 0.42, Math.PI * 0.12, Math.PI * 0.6);
+    for (let i = 0; i < 7; i++) {
+      const pivot = new THREE.Group();
+      pivot.rotation.z = (i / 7) * Math.PI * 2;
+      const petal = new THREE.Mesh(petalGeo, this.petalMat);
+      petal.rotation.y = -Math.PI * 0.21;
+      pivot.add(petal);
+      this.group.add(pivot);
+      this.petals.push(petal);
     }
 
-    // ── Central cannon ──
-    const cannonMat = new THREE.MeshPhongMaterial({
-      color: 0x666666,
-      emissive: 0x444444,
-      emissiveIntensity: 0.3,
+    // ── Antlers: branching curves of light rising from the crown ──
+    this.antlerMat = new THREE.MeshStandardMaterial({
+      color: 0xfff4d8, emissive: GOLD.getHex(), emissiveIntensity: 1.1, roughness: 0.4,
     });
-    const cannonGeo = new THREE.CylinderGeometry(0.2, 0.4, 1.5, 8);
-    const cannon = new THREE.Mesh(cannonGeo, cannonMat);
-    cannon.position.set(0, 0, -this._size * 0.6);
-    cannon.rotation.x = Math.PI / 2;
-    this.group.add(cannon);
+    const branch = (pts: THREE.Vector3[], r: number): THREE.Mesh => {
+      const m = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 18, r, 6, false), this.antlerMat);
+      this.group.add(m);
+      return m;
+    };
+    for (const s of [-1, 1]) {
+      const V = (x: number, y: number, z: number) => new THREE.Vector3(x * s * R, y * R, z * R);
+      branch([V(0.12, 0.3, 0), V(0.38, 0.72, 0.05), V(0.62, 1.0, -0.05), V(0.7, 1.32, 0.02)], R * 0.035);
+      branch([V(0.38, 0.72, 0.05), V(0.2, 1.02, 0.12), V(0.22, 1.28, 0.1)], R * 0.026);
+      branch([V(0.62, 1.0, -0.05), V(0.9, 1.08, 0.0), V(1.04, 1.26, 0.06)], R * 0.024);
+      branch([V(0.3, 0.6, 0.02), V(0.6, 0.62, 0.14), V(0.82, 0.74, 0.2)], R * 0.022);
+      // Light gathers at the tips: this is where its "voice" comes from.
+      for (const tip of [V(0.7, 1.32, 0.02), V(0.22, 1.28, 0.1), V(1.04, 1.26, 0.06)]) {
+        const e = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: getSoftParticleTexture(), color: GOLD.getHex(), transparent: true,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        e.position.copy(tip);
+        e.scale.setScalar(R * 0.3);
+        this.group.add(e);
+        this.emitters.push(e);
+      }
+    }
 
-    // Cannon tip glow
-    const tipMat = new THREE.MeshBasicMaterial({
-      color: 0xff4400,
-      transparent: true,
-      opacity: 0.7,
+    // ── Ribbons: slow trailing veils below the body ──
+    this.ribbonMat = new THREE.MeshBasicMaterial({
+      color: CALM.getHex(), transparent: true, opacity: 0.32, side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending, depthWrite: false,
     });
-    const tipGeo = new THREE.SphereGeometry(0.2, 6, 6);
-    const tip = new THREE.Mesh(tipGeo, tipMat);
-    tip.position.set(0, 0, -this._size * 0.6 - 0.8);
-    this.group.add(tip);
+    for (let i = 0; i < 6; i++) {
+      const geo = new THREE.PlaneGeometry(R * 0.16, R * 1.9, 1, 14);
+      geo.translate(0, -R * 0.95, 0);
+      const ribbon = new THREE.Mesh(geo, this.ribbonMat);
+      const a = (i / 6) * Math.PI * 2;
+      ribbon.position.set(Math.cos(a) * R * 0.3, -R * 0.25, Math.sin(a) * R * 0.3);
+      ribbon.rotation.y = -a;
+      ribbon.userData.base = (geo.attributes.position.array as Float32Array).slice();
+      ribbon.userData.phase = i * 1.1;
+      this.group.add(ribbon);
+      this.ribbons.push(ribbon);
+    }
 
-    // ── Rotating ring (visual flair) ──
-    const ring2Mat = new THREE.MeshPhongMaterial({
-      color: 0x44aaff,
-      emissive: 0x2244aa,
-      emissiveIntensity: 0.3,
-      transparent: true,
-      opacity: 0.4,
-    });
-    const ring2Geo = new THREE.TorusGeometry(this._size * 0.7, 0.04, 8, 32);
-    const ring2 = new THREE.Mesh(ring2Geo, ring2Mat);
-    ring2.position.y = 0.2;
-    ring2.rotation.x = Math.PI / 3;
-    this.group.add(ring2);
+    // ── Aura: soft fresnel glow, no hard edges anywhere ──
+    this.aura = new THREE.Mesh(
+      new THREE.SphereGeometry(R * 0.95, 32, 20),
+      new THREE.ShaderMaterial({
+        uniforms: { uColor: { value: CALM.clone() }, uHit: { value: 0 }, uTime: { value: 0 }, uAlpha: { value: 1 } },
+        vertexShader: /* glsl */ `
+          varying vec3 vN; varying vec3 vV;
+          void main() {
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            vN = normalize(normalMatrix * normal);
+            vV = normalize(-mv.xyz);
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: /* glsl */ `
+          uniform vec3 uColor; uniform float uHit; uniform float uTime; uniform float uAlpha;
+          varying vec3 vN; varying vec3 vV;
+          void main() {
+            float rim = pow(1.0 - abs(dot(vN, vV)), 2.2);
+            float breathe = 0.75 + 0.25 * sin(uTime * 1.6);
+            gl_FragColor = vec4(uColor * (1.2 + uHit * 2.0), (rim * 0.55 * breathe + uHit * 0.2) * uAlpha);
+          }`,
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+      }),
+    );
+    this.group.add(this.aura);
 
-    // Scale the whole group
-    this.group.scale.set(1, 1, 1);
+    // ── Halo ring, like a slow orbiting thought ──
+    this.ring = new THREE.Mesh(
+      new THREE.TorusGeometry(R * 1.05, R * 0.012, 6, 64),
+      new THREE.MeshBasicMaterial({ color: GOLD.getHex(), transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }),
+    );
+    this.group.add(this.ring);
   }
 
+  get exposed(): boolean { return this._exposed; }
+  get pacified(): boolean { return this._pacified; }
+
   protected onPhaseChange(phase: number): void {
-    switch (phase) {
-      case 2:
-        // Phase 2: faster attacks, spawn drones
-        this.attackInterval = 1.2;
-        // Change shield color
-        this.shieldUniforms.uColor.value.setHex(0xff7744);
-        break;
-      case 3:
-        // Phase 3: enraged
-        this.attackInterval = 0.85;
-        (this.core.material as THREE.MeshBasicMaterial).color.setHex(0xff0000);
-        this.shieldUniforms.uColor.value.setHex(0xff2244);
-        break;
-    }
+    if (phase >= 2) this.attackInterval = 1.25;
   }
 
   init(position: THREE.Vector3): void {
     super.init(position);
-    this.attackTimer = -2.5; // grace period while it swoops in
-    this.attackInterval = 2;
-    this.volleyEven = false;
+    this.attackTimer = -2.5; // grace period while it drifts in
+    this.attackInterval = 2.4;
     this.volleyCount = 0;
     this.hitFlash = 0;
+    this.pulseTimer = PULSE_EVERY * 0.6;
+    this._exposed = false;
+    this._pacified = false;
+    this._pain = 0;
   }
 
   takeDamage(amount: number): boolean {
+    if (!this._active || this._exposed || this._pacified) return false;
     this.hitFlash = 1;
+    const floor = this._maxHealth * EXPOSE_AT;
+    if (this._health - amount <= floor) {
+      // Spent. It does not die here: it is left open and helpless.
+      this._health = floor;
+      this._exposed = true;
+      this.eventBus.emit(GameEvent.BOSS_DAMAGED, { health: this._health, maxHealth: this._maxHealth });
+      this.eventBus.emit(GameEvent.BOSS_EXPOSED, {});
+      return false;
+    }
     return super.takeDamage(amount);
   }
 
+  /** Bad ending: the player obeys and fires into the open heart. */
+  finalBlow(): void {
+    if (!this._active) return;
+    this._health = 0;
+    this.eventBus.emit(GameEvent.BOSS_DAMAGED, { health: 0, maxHealth: this._maxHealth });
+    this.destroy();
+  }
+
+  /** Good ending: the threat is gone; the Guardian heals and stays. */
+  pacify(): void {
+    this._pacified = true;
+    this._exposed = false;
+  }
+
   /**
-   * @param anchor point on the rail ~45 units ahead of the ship. The boss
-   * holds station around it (the old version used absolute world X/Y, so on
-   * winding rails it hovered off to the side of the path).
+   * @param anchor point on the rail ~45 units ahead of the ship. The Guardian
+   * holds station around it so it stays on the path on winding rails.
    */
   update(dt: number, playerPos: THREE.Vector3, anchor?: THREE.Vector3): void {
     if (!this._active) return;
     super.update(dt, playerPos);
+    const t = this._age;
+
+    // Pain rises through phase 2 and peaks when exposed; fades if pacified.
+    const painTarget = this._pacified ? 0 : this._exposed ? 1 : this._currentPhase >= 2 ? 0.75 : 0;
+    this._pain = THREE.MathUtils.lerp(this._pain, painTarget, 1 - Math.exp(-1.5 * dt));
+    const pain = this._pain;
 
     const a = anchor ?? this._desired.set(0, 0, playerPos.z - 45);
-    const sway = this._currentPhase >= 3 ? 1.6 : 1;
+    // Exposed: it sinks and barely moves. In pain: it thrashes.
+    const sway = this._exposed ? 0.25 : 1 + pain * 0.9;
     this._desired.set(
-      a.x + Math.sin(this._age * 0.45 * sway) * 7,
-      a.y + 2 + Math.sin(this._age * 0.7 * sway) * 3,
+      a.x + Math.sin(t * 0.45 * sway) * 7 * (this._exposed ? 0.3 : 1),
+      a.y + (this._exposed ? -1 : 2) + Math.sin(t * 0.7 * sway) * 3 * (this._exposed ? 0.3 : 1),
       a.z,
     );
-    // Critically-damped follow: fast swoop-in on entry, smooth afterwards.
-    const k = 1 - Math.exp(-(this._age < 3 ? 1.6 : 2.4) * dt);
+    const k = 1 - Math.exp(-(t < 3 ? 1.6 : 2.4) * dt);
     this.group.position.lerp(this._desired, k);
-
-    // Always face the player
     this.group.lookAt(playerPos);
-
-    // Hit flash on the hull + phase-tinted reactor halo.
-    this.hitFlash = Math.max(0, this.hitFlash - dt * 8);
-    this.hullMat.emissiveIntensity = 0.2 + this.hitFlash * 1.6;
-    const haloPulse = 1 + Math.sin(this._age * (2 + this._currentPhase * 2)) * 0.18 + this.hitFlash * 0.3;
-    this.coreHalo.scale.setScalar(this._size * 1.4 * haloPulse);
-
-    // Rotate slowly
-    this.group.rotation.z += dt * 0.3;
-
-    // Rotating ring animation
-    const ring = this.group.children.find(c => c instanceof THREE.Mesh && c.geometry.type === 'TorusGeometry' && c.position.y === 0.5);
-    if (ring) {
-      ring.rotation.z += dt * 1.5;
-    }
-    const ring2 = this.group.children.find(c => c instanceof THREE.Mesh && c.geometry.type === 'TorusGeometry' && c.position.y === 0.2);
-    if (ring2) {
-      ring2.rotation.y += dt * 0.8;
-      ring2.rotation.x = Math.PI / 3 + Math.sin(this._age * 0.5) * 0.2;
+    // Tremor of pain.
+    if (pain > 0.05 && !this._pacified) {
+      this.group.position.x += (Math.random() - 0.5) * 0.35 * pain;
+      this.group.position.y += (Math.random() - 0.5) * 0.35 * pain;
     }
 
-    // Core pulse
-    const pulse = Math.sin(this._age * 3) * 0.3 + 0.7;
-    (this.core.material as THREE.MeshBasicMaterial).opacity = pulse;
+    // Colour: calm teal → aching magenta. Never red-and-black "evil".
+    this._tint.copy(CALM).lerp(PAIN, pain);
+    this.hitFlash = Math.max(0, this.hitFlash - dt * 6);
+    this.petalMat.emissive.copy(this._tint);
+    this.petalMat.emissiveIntensity = 0.55 + this.hitFlash * 1.4 + pain * 0.3;
+    this.ribbonMat.color.copy(this._tint);
+    (this.coreHalo.material as THREE.SpriteMaterial).color.copy(this._tint).lerp(GOLD, 0.25);
+    const aura = (this.aura.material as THREE.ShaderMaterial).uniforms;
+    aura.uColor.value.copy(this._tint);
+    aura.uHit.value = this.hitFlash;
+    aura.uTime.value = t;
+    // The aura (its last shield) gutters out when exposed.
+    aura.uAlpha.value = THREE.MathUtils.lerp(aura.uAlpha.value, this._exposed ? 0.12 : 1, 1 - Math.exp(-2 * dt));
 
-    // Shield shader: scroll + flare on hits
-    this.shieldUniforms.uTime.value = this._age;
-    this.shieldUniforms.uHit.value = this.hitFlash;
+    // Heartbeat: slow and even when calm, fast and ragged in pain.
+    const rate = 1.6 + pain * 4.5;
+    const beat = Math.pow(Math.abs(Math.sin(t * rate)), 4);
+    this.core.scale.setScalar(1 + beat * (0.12 + pain * 0.2));
+    this.coreHalo.scale.setScalar(this._size * (2.2 + beat * 0.7 + this.hitFlash * 0.5));
 
-    // Attack timer
+    // Petals: closed around the heart; phase 2 forces them open, and when
+    // exposed they hang fully apart, the heart bare.
+    const open = this._pacified ? 0.15 : this._exposed ? 1.15 : this._currentPhase >= 2 ? 0.6 : 0.12;
+    for (let i = 0; i < this.petals.length; i++) {
+      const p = this.petals[i];
+      const target = -Math.PI * 0.21 - open - Math.sin(t * 1.3 + i) * 0.04;
+      p.rotation.y = THREE.MathUtils.lerp(p.rotation.y, target, 1 - Math.exp(-2.5 * dt));
+    }
+
+    // Ribbons ripple like kelp.
+    for (const r of this.ribbons) {
+      const pos = r.geometry.attributes.position;
+      const base = r.userData.base as Float32Array;
+      for (let i = 0; i < pos.count; i++) {
+        const y = base[i * 3 + 1];
+        const w = (y / (this._size * 1.9)) ;
+        pos.setX(i, base[i * 3] + Math.sin(t * (1.4 + pain * 3) + y * 0.5 + r.userData.phase) * w * w * 2.2);
+        pos.setZ(i, base[i * 3 + 2] + Math.cos(t * 1.1 + y * 0.4 + r.userData.phase) * w * w * 1.6);
+      }
+      pos.needsUpdate = true;
+    }
+
+    this.ring.rotation.x = Math.PI / 2 + Math.sin(t * 0.5) * 0.35;
+    this.ring.rotation.y += dt * (0.5 + pain * 2);
+    for (const e of this.emitters) e.scale.setScalar(this._size * (0.26 + beat * 0.12));
+
+    if (this._exposed || this._pacified) return;
     this.attackTimer += dt;
-  }
-
-  private get shieldUniforms(): { uColor: { value: THREE.Color }; uTime: { value: number }; uHit: { value: number }; uOpacity: { value: number } } {
-    return (this.shield.material as THREE.ShaderMaterial).uniforms as never;
+    // The shove: only while it still has the strength to be gentle.
+    if (this._currentPhase === 1 && t > 4) {
+      this.pulseTimer -= dt;
+      if (this.pulseTimer <= 0) {
+        this.pulseTimer = PULSE_EVERY;
+        this.hitFlash = 0.6;
+        this.eventBus.emit(GameEvent.BOSS_PULSE, {});
+      }
+    }
   }
 
   canAttack(): boolean {
-    return this._active && this.attackTimer >= this.attackInterval;
+    return this._active && !this._exposed && !this._pacified && this.attackTimer >= this.attackInterval;
   }
 
   resetAttackTimer(): void {
     this.attackTimer = 0;
   }
 
-  // Phase 1: alternating turret volley · Phase 2: + aimed fan from the core
-  // Phase 3: + rotating ring burst. Each pattern leaves dodgeable gaps.
+  /**
+   * Phase 1 (defence): alternating fan / rotating ring — walls with wide
+   * gaps, thrown to block the path rather than to hit.
+   * Phase 2 (despair): both at once, denser, plus aimed bursts from the
+   * antler tips. Still always dodgeable.
+   */
   computeVolley(playerPos: THREE.Vector3): { position: THREE.Vector3; dir: THREE.Vector3 }[] {
-    this.volleyEven = !this.volleyEven;
     this.volleyCount++;
     const shots: { position: THREE.Vector3; dir: THREE.Vector3 }[] = [];
-    const turrets = this.getTurretPositions();
-    for (let idx = 0; idx < turrets.length; idx++) {
-      if ((idx % 2 === 0) !== this.volleyEven) continue;
-      shots.push({
-        position: turrets[idx],
-        dir: playerPos.clone().sub(turrets[idx]).normalize(),
-      });
-    }
     const corePos = new THREE.Vector3();
     this.core.getWorldPosition(corePos);
     const toPlayer = playerPos.clone().sub(corePos).normalize();
     const right = new THREE.Vector3().crossVectors(toPlayer, new THREE.Vector3(0, 1, 0)).normalize();
     const up = new THREE.Vector3().crossVectors(right, toPlayer).normalize();
-    if (this._currentPhase >= 2 && this.volleyCount % 2 === 0) {
-      for (let i = -2; i <= 2; i++) {
-        shots.push({ position: corePos.clone(), dir: toPlayer.clone().addScaledVector(right, i * 0.09).normalize() });
+    const desperate = this._currentPhase >= 2;
+
+    const fan = () => {
+      const n = desperate ? 3 : 2;
+      for (let i = -n; i <= n; i++) {
+        // Phase 1 leaves the centre lane open: it is a wall, not a shot.
+        if (!desperate && i === 0) continue;
+        shots.push({ position: corePos.clone(), dir: toPlayer.clone().addScaledVector(right, i * 0.1).normalize() });
       }
-    }
-    if (this._currentPhase >= 3 && this.volleyCount % 3 === 0) {
-      const n = 10;
+    };
+    const ringBurst = () => {
+      const n = desperate ? 12 : 8;
       const spin = this._age * 1.3;
       for (let i = 0; i < n; i++) {
         const ang = spin + (i / n) * Math.PI * 2;
-        const dir = toPlayer.clone()
-          .addScaledVector(right, Math.cos(ang) * 0.28)
-          .addScaledVector(up, Math.sin(ang) * 0.28)
-          .normalize();
-        shots.push({ position: corePos.clone(), dir });
+        shots.push({
+          position: corePos.clone(),
+          dir: toPlayer.clone().addScaledVector(right, Math.cos(ang) * 0.28).addScaledVector(up, Math.sin(ang) * 0.28).normalize(),
+        });
       }
+    };
+
+    if (desperate) {
+      fan();
+      if (this.volleyCount % 2 === 0) ringBurst();
+      const tips = this.getTurretPositions();
+      const tip = tips[this.volleyCount % tips.length];
+      shots.push({ position: tip, dir: playerPos.clone().sub(tip).normalize() });
+    } else if (this.volleyCount % 2 === 0) {
+      ringBurst();
+    } else {
+      fan();
     }
     return shots;
   }
 
   getTurretPositions(): THREE.Vector3[] {
-    return this.turrets.map(t => {
-      const worldPos = new THREE.Vector3();
-      t.getWorldPosition(worldPos);
-      return worldPos;
-    });
+    return this.emitters.map(e => e.getWorldPosition(new THREE.Vector3()));
   }
 
   reset(): void {
     super.reset();
     this.attackTimer = 0;
+    this.attackInterval = 2.4;
     this.volleyCount = 0;
     this.hitFlash = 0;
-    this.hullMat.emissiveIntensity = 0.2;
-    this.coreHalo.scale.setScalar(this._size * 1.4);
-    this.attackInterval = 2;
-    this.volleyEven = false;
-    (this.core.material as THREE.MeshBasicMaterial).color.setHex(0xff8844);
-    this.shieldUniforms.uColor.value.setHex(0x44aaff);
-    this.shieldUniforms.uHit.value = 0;
+    this._exposed = false;
+    this._pacified = false;
+    this._pain = 0;
   }
 }

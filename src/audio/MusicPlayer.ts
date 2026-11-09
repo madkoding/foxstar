@@ -25,6 +25,17 @@ export class MusicPlayer {
     this.audio.play().catch(() => {});
   }
 
+  /**
+   * Bend the track: rate < 1 drags it down in pitch and tempo (the Guardian's
+   * pain), volume ducks it under the scene.
+   */
+  setMood(rate: number, volume = 0.75): void {
+    if (!this.audio) return;
+    (this.audio as HTMLAudioElement & { preservesPitch?: boolean }).preservesPitch = false;
+    this.audio.playbackRate = rate;
+    this.audio.volume = volume;
+  }
+
   stop(): void {
     this._playing = false;
     if (this.audio) {

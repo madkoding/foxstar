@@ -21,6 +21,10 @@ export enum GameEvent {
   BOSS_DAMAGED = 'boss:damaged',
   BOSS_DESTROYED = 'boss:destroyed',
   BOSS_PHASE = 'boss:phase',
+  /** The Guardian is spent and defenceless: the final choice begins. */
+  BOSS_EXPOSED = 'boss:exposed',
+  /** The Guardian pushes the ship back (no damage). */
+  BOSS_PULSE = 'boss:pulse',
 
   // Waves
   WAVE_START = 'wave:start',
@@ -48,6 +52,8 @@ export type EventPayloads = {
   [GameEvent.BOSS_DAMAGED]: { health: number; maxHealth: number };
   [GameEvent.BOSS_DESTROYED]: { score: number };
   [GameEvent.BOSS_PHASE]: { phase: number };
+  [GameEvent.BOSS_EXPOSED]: {};
+  [GameEvent.BOSS_PULSE]: {};
 
   [GameEvent.WAVE_START]: { wave: number; totalWaves: number };
 

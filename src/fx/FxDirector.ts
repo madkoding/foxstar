@@ -6,6 +6,8 @@
 //   - flash() / aberrate() / hurt(): screen-space pulses for the post pass
 //   - kickFov(): punchy camera FOV impulses (boost, warp, explosions)
 //   - warp: sustained zoom blur + FOV stretch for hyperspace transitions
+//   - truthPulse(): the story glitch — the spectrum inverts for an instant
+//   - setHeat(): sustained heat-haze refraction
 //
 // The director runs on REAL time (unaffected by its own slow-motion) and writes
 // the resulting numbers into the post-processing pipeline and Timekeeper.
@@ -44,10 +46,16 @@ export class FxDirector {
   private danger = 0;
   private saturation = 1;
   private saturationTarget = 1;
+  private saturationRate = 3;
+  private truth = 0;
+  private truthTimer = 0;
+  private truthStrength = 1;
+  private heat = 0;
+  private heatTarget = 0;
 
   private params: CinematicParams = {
     aberration: 0, zoomBlur: 0, flash: 0, flashColor: new THREE.Color(1, 1, 1),
-    damage: 0, danger: 0, vignette: 0.32, saturation: 1, bloom: 1,
+    damage: 0, danger: 0, vignette: 0.32, saturation: 1, bloom: 1, truth: 0, heat: 0,
   };
 
   constructor(private post: PostProcessingPipeline, private camera: THREE.PerspectiveCamera) {}
@@ -95,7 +103,17 @@ export class FxDirector {
   setBoost(active: boolean): void { this.boostTarget = active ? 1 : 0; }
   setWarp(amount: number): void { this.warpTarget = THREE.MathUtils.clamp(amount, 0, 1.5); }
   setDanger(amount: number): void { this.dangerTarget = THREE.MathUtils.clamp(amount, 0, 1); }
-  setSaturation(s: number): void { this.saturationTarget = s; }
+  /** `rate` = how fast the grade moves (lower = slow cinematic drain). */
+  setSaturation(s: number, rate = 3): void { this.saturationTarget = s; this.saturationRate = rate; }
+  setHeat(amount: number): void { this.heatTarget = THREE.MathUtils.clamp(amount, 0, 1); }
+
+  /** Show the unfiltered world for `seconds` (real time), then snap back. */
+  truthPulse(seconds: number, strength = 1): void {
+    this.truthTimer = Math.max(this.truthTimer, seconds);
+    this.truthStrength = strength;
+  }
+
+  get truthAmount(): number { return this.truth; }
 
   get warpAmount(): number { return this.warp; }
   get boostAmount(): number { return this.boost; }
@@ -114,6 +132,9 @@ export class FxDirector {
     this.warp = this.warpTarget = 0;
     this.danger = this.dangerTarget = 0;
     this.saturation = this.saturationTarget = 1;
+    this.saturationRate = 3;
+    this.truth = this.truthTimer = 0;
+    this.heat = this.heatTarget = 0;
     this.timekeeper.timeScale = 1;
   }
 
@@ -153,7 +174,11 @@ export class FxDirector {
     this.boost = damp(this.boost, this.boostTarget, 6, realDt);
     this.warp = damp(this.warp, this.warpTarget, 3.2, realDt);
     this.danger = damp(this.danger, this.dangerTarget, 3, realDt);
-    this.saturation = damp(this.saturation, this.saturationTarget, 3, realDt);
+    this.saturation = damp(this.saturation, this.saturationTarget, this.saturationRate, realDt);
+    this.heat = damp(this.heat, this.heatTarget, 1.5, realDt);
+    // Truth snaps on hard and cuts off just as hard: it is a glitch, not a fade.
+    if (!paused) this.truthTimer = Math.max(0, this.truthTimer - realDt);
+    this.truth = damp(this.truth, this.truthTimer > 0 ? this.truthStrength : 0, 30, realDt);
 
     // Camera FOV: base + boost stretch + warp stretch + impulses.
     const fov = baseFovFor(this.camera.aspect) + this.boost * 12 + this.warp * 38 + this.fovImpulse;
@@ -172,6 +197,8 @@ export class FxDirector {
     p.vignette = 0.32 + this.warp * 0.25;
     p.saturation = this.saturation + this.boost * 0.15;
     p.bloom = 1 + this.bloomImpulse + this.warp * 0.8;
+    p.truth = this.truth;
+    p.heat = this.heat;
     this.post.apply(p);
   }
 }

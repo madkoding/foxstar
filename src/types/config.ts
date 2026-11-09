@@ -3,7 +3,7 @@
 export const GAME = {
   TARGET_FPS: 60,
   MAX_DELTA: 1 / 30, // 33ms cap
-  LEVEL_COUNT: 20,
+  LEVEL_COUNT: 8,
 } as const;
 
 export const RAIL = {
@@ -103,14 +103,14 @@ export const ENEMIES = {
 
 export const BOSS = {
   MOTHERSHIP: {
-    name: 'MOTHER',
+    name: 'EL GUARDIÁN',
     health: 2000,
     speed: 5,
     damage: 30,
     score: 5000,
-    size: 8,
-    color: 0xff2222,
-    phases: 3,
+    size: 11,
+    color: 0x7fe8d8,
+    phases: 2,
   },
 } as const;
 

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { GAME } from '../types/config';
 import { GameEvent } from '../types/events';
 import { EventBus } from './EventBus';
-import { StateManager, GameState } from './StateManager';
+import { StateManager } from './StateManager';
 import { ScoreSystem } from './ScoreSystem';
 import { AudioManager } from '../audio/AudioManager';
 import { ExplosionSystem } from '../fx/ExplosionSystem';
@@ -17,6 +17,8 @@ import { CameraRig } from '../camera/CameraRig';
 interface GameCallbacks {
   /** Boss down: Game runs the clear → warp → next-level sequence. */
   onLevelComplete: (nextLevel: number) => void;
+  /** Last stage resolved: the Game is already playing an ending. */
+  onGameComplete?: () => void;
   onPlayerDeath: (score: number, wave: number) => void;
   onEnemyKilled?: (pos: THREE.Vector3, gained: number, combo: number) => void;
 }
@@ -34,6 +36,8 @@ export class GameEventBinder {
   private waveManager!: WaveManager;
   private callbacks!: GameCallbacks;
   private _currentLevel = 0;
+  /** What fallen enemies dissolve into (set per stage by the story). */
+  killColor = 0xff8844;
 
   constructor(deps: {
     stateManager: StateManager;
@@ -77,7 +81,7 @@ export class GameEventBinder {
     this.eventBus.on(GameEvent.ENEMY_DESTROYED, (p) => {
       const gained = this.scoreSystem.add(p.score);
       const pos = new THREE.Vector3(p.position.x, p.position.y, p.position.z);
-      this.explosionSystem.spawnEpic(pos, 0xff8844);
+      this.explosionSystem.spawnEpic(pos, this.killColor);
       this.audioManager.playExplosion();
       this.hitSpark.spawn(pos, 0xffcc66, 1.6);
       this.callbacks.onEnemyKilled?.(pos, gained, this.scoreSystem.combo);
@@ -106,9 +110,7 @@ export class GameEventBinder {
     this.eventBus.on(GameEvent.LEVEL_COMPLETE, () => {
       this._currentLevel++;
       if (this._currentLevel >= GAME.LEVEL_COUNT) {
-        this.eventBus.emit(GameEvent.VICTORY, { score: this.scoreSystem.score });
-        this.audioManager.playVictory();
-        this.stateManager.transition(GameState.VICTORY);
+        this.callbacks.onGameComplete?.();
       } else {
         // The Game owns the timed, pausable clear → warp → load sequence (the
         // old setTimeout kept running while paused).

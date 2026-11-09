@@ -1,7 +1,8 @@
 // ─── Announcer: cinematic DOM banners (all motion lives in styles.css) ──────
 //
-//   stageIntro()  — "SECTOR 07" slam + level name type-on + wipe lines
-//   stageClear()  — "MISSION COMPLETE" with a counting bonus tally
+//   stageIntro()  — "ETAPA 07" slam + stage name type-on + wipe lines
+//   stageClear()  — the stage's closing title with a counting bonus tally
+//   caption()     — quiet cinematic subtitle (epilogue)
 //   warning()     — hazard-striped boss alert with a pulsing frame
 //   toast()       — short centre callouts ("SHIELD DOWN", "BOMB +1", …)
 //
@@ -42,15 +43,15 @@ export class Announcer {
     const num = String(levelNumber).padStart(2, '0');
     this.mount(`
       <div class="ann-stage-line l1"></div>
-      <div class="ann-stage-kicker">${this.letters(`SECTOR ${num} / ${total}`, 0.15, 0.03)}</div>
+      <div class="ann-stage-kicker">${this.letters(`ETAPA ${num} / ${String(total).padStart(2, '0')}`, 0.15, 0.03)}</div>
       <div class="ann-stage-name">${this.letters(name.toUpperCase(), 0.45, 0.04)}</div>
       <div class="ann-stage-line l2"></div>
     `, 'ann-stage', 3600);
   }
 
-  stageClear(bonus: number, onTallyDone?: () => void): void {
+  stageClear(title: string, bonus: number, onTallyDone?: () => void): void {
     const el = this.mount(`
-      <div class="ann-clear-title">${this.letters('MISSION COMPLETE', 0, 0.045)}</div>
+      <div class="ann-clear-title">${this.letters(title, 0, 0.045)}</div>
       <div class="ann-clear-bonus">BONUS <span class="ann-tally">0</span></div>
     `, 'ann-clear', 4200);
     const tally = el.querySelector('.ann-tally') as HTMLElement;
@@ -81,6 +82,13 @@ export class Announcer {
       this.timers.delete(t);
     }, 3200);
     this.timers.add(t);
+  }
+
+  /** Soft centred subtitle that fades in and out on its own. */
+  caption(text: string, seconds = 4): void {
+    this.root.querySelectorAll('.ann-caption').forEach(n => n.remove());
+    const el = this.mount(`<span>${escapeHtml(text)}</span>`, 'ann-caption', seconds * 1000);
+    el.style.setProperty('--life', `${seconds}s`);
   }
 
   toast(text: string, tone: 'cyan' | 'amber' | 'red' | 'green' = 'cyan'): void {

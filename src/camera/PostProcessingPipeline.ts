@@ -47,6 +47,8 @@ export interface CinematicParams {
   vignette: number;     // base vignette darkness
   saturation: number;   // 1 = neutral
   bloom: number;        // bloom strength multiplier
+  truth: number;        // 0..1   "unfiltered" view: inverted spectrum (story glitch)
+  heat: number;         // 0..1   heat-haze refraction (lava river)
 }
 
 const CinematicShader = {
@@ -62,6 +64,8 @@ const CinematicShader = {
     uVignette: { value: 0.35 },
     uSaturation: { value: 1 },
     uAspect: { value: 16 / 9 },
+    uTruth: { value: 0 },
+    uHeat: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -82,6 +86,8 @@ const CinematicShader = {
     uniform float uVignette;
     uniform float uSaturation;
     uniform float uAspect;
+    uniform float uTruth;
+    uniform float uHeat;
     varying vec2 vUv;
 
     float hash(vec2 p) {
@@ -102,9 +108,23 @@ const CinematicShader = {
       float dist = length(center * vec2(uAspect, 1.0));
       vec2 dir = normalize(center + 1e-5);
 
+      // Heat haze: rising ripples, strongest low in the frame (over the lava).
+      vec2 suv = vUv;
+      if (uHeat > 0.001) {
+        float rise = uTime * 2.2;
+        float low = 1.0 - smoothstep(0.0, 0.85, vUv.y);
+        suv.x += sin(vUv.y * 70.0 - rise * 3.0 + sin(vUv.x * 9.0 + rise)) * 0.0022 * uHeat * (0.35 + low);
+        suv.y += sin(vUv.x * 46.0 + rise * 2.0) * 0.0012 * uHeat * (0.35 + low);
+      }
+      // Truth glitch: the image tears into horizontal bands for an instant.
+      if (uTruth > 0.001) {
+        float band = floor(vUv.y * 24.0);
+        suv.x += (hash(vec2(band, floor(uTime * 30.0))) - 0.5) * 0.03 * uTruth;
+      }
+
       // Radial chromatic aberration: stronger toward the edges.
-      float ca = (0.0012 + uAberration * 0.012) * smoothstep(0.0, 0.9, dist);
-      vec3 col = sampleRGB(vUv, dir, ca);
+      float ca = (0.0012 + (uAberration + uTruth * 1.5) * 0.012) * smoothstep(0.0, 0.9, dist);
+      vec3 col = sampleRGB(suv, dir, ca);
 
       // Radial zoom blur (boost / warp). 8 taps toward the center.
       if (uZoomBlur > 0.001) {
@@ -113,12 +133,20 @@ const CinematicShader = {
         float strength = uZoomBlur * 0.09 * smoothstep(0.05, 0.7, dist);
         for (int i = 1; i <= 8; i++) {
           float t = float(i) / 8.0;
-          vec2 uv = vUv - center * strength * t;
+          vec2 uv = suv - center * strength * t;
           float w = 1.0 - t * 0.6;
           acc += sampleRGB(uv, dir, ca) * w;
           total += w;
         }
         col = acc / total;
+      }
+
+      // Truth: what the sensors see without the handler's filter — the
+      // spectrum inverted, living things burning bright.
+      if (uTruth > 0.001) {
+        vec3 inv = 1.0 - clamp(col, 0.0, 1.0);
+        inv = inv.gbr * vec3(0.9, 1.1, 1.2);
+        col = mix(col, inv, clamp(uTruth, 0.0, 1.0));
       }
 
       // Saturation grading.
@@ -239,6 +267,8 @@ export class PostProcessingPipeline {
     u.uDanger.value = p.danger;
     u.uVignette.value = p.vignette;
     u.uSaturation.value = p.saturation;
+    u.uTruth.value = p.truth;
+    u.uHeat.value = p.heat;
     this.bloomPass.strength = this.baseBloom * p.bloom;
   }
 

@@ -16,7 +16,7 @@ import { getBiomeProfile, heightAt, liquidAt, floorAt } from './TerrainField';
 import { railAtZ } from './RailShape';
 import { buildChunkStreet, buildCityAccents, getFacadeMaterial, releaseStreetObject, tickCity, type TowerSlot } from './CityStreets';
 
-type Kind = 'tree' | 'rock' | 'dead' | 'building' | 'crystal';
+type Kind = 'tree' | 'rock' | 'dead' | 'building' | 'crystal' | 'mushroom' | 'root';
 
 const windTime = { value: 0 };
 
@@ -87,6 +87,26 @@ function deadTreeGeo(): THREE.BufferGeometry {
   return g;
 }
 
+// Giant bioluminescent mushroom: pale stem, glowing spotted cap.
+function mushroomGeo(): THREE.BufferGeometry {
+  const hit = geoCache.get('mushroom');
+  if (hit) return hit;
+  const stem = new THREE.CylinderGeometry(0.07, 0.11, 0.7, 7);
+  stem.translate(0, 0.35, 0);
+  const cap = new THREE.SphereGeometry(0.42, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5);
+  cap.scale(1, 0.62, 1);
+  cap.translate(0, 0.66, 0);
+  const gills = new THREE.CylinderGeometry(0.4, 0.12, 0.06, 10);
+  gills.translate(0, 0.65, 0);
+  const g = mergeColored([
+    { geo: stem, color: new THREE.Color(0x9ab8a8) },
+    { geo: cap, color: new THREE.Color(0x4affc8) },
+    { geo: gills, color: new THREE.Color(0xc8fff0) },
+  ]);
+  geoCache.set('mushroom', g);
+  return g;
+}
+
 function buildingGeo(): THREE.BufferGeometry {
   const hit = geoCache.get('building');
   if (hit) return hit;
@@ -116,9 +136,18 @@ function getMats(): Record<Kind, THREE.Material> {
   };
   const dead = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, emissive: 0x220600, emissiveIntensity: 0.6 });
   dead.onBeforeCompile = tree.onBeforeCompile;
+  const mushroom = new THREE.MeshStandardMaterial({
+    vertexColors: true, roughness: 0.5, emissive: 0x2affb0, emissiveIntensity: 0.55, envMapIntensity: 0.3,
+  });
+  mushroom.onBeforeCompile = tree.onBeforeCompile;
+  // Roots of energy inside the planet's core.
+  const root = new THREE.MeshStandardMaterial({ color: 0x8a6ad0, roughness: 0.6, emissive: 0x7a3aff, emissiveIntensity: 0.3 });
+  root.onBeforeCompile = tree.onBeforeCompile;
   mats = {
     tree,
     dead,
+    mushroom,
+    root,
     rock: new THREE.MeshStandardMaterial({ vertexColors: true, color: 0x8a8278, roughness: 0.95, flatShading: true, envMapIntensity: 0.3 }),
     building: getFacadeMaterial(),
     crystal: new THREE.MeshStandardMaterial({
@@ -128,7 +157,7 @@ function getMats(): Record<Kind, THREE.Material> {
   return mats;
 }
 
-interface Spec { kind: Kind; geo: THREE.BufferGeometry; count: number; scale: [number, number]; tint?: number }
+interface Spec { kind: Kind; geo: THREE.BufferGeometry; count: number; scale: [number, number]; tint?: number; band?: [number, number] }
 
 function specsFor(terrain: TerrainType, hi: boolean): Spec[] {
   switch (terrain) {
@@ -150,6 +179,15 @@ function specsFor(terrain: TerrainType, hi: boolean): Spec[] {
     ] : [];
     case 'city': return [{ kind: 'building', geo: buildingGeo(), count: hi ? 70 : 40, scale: [10, 18] }];
     case 'cave': return hi ? [{ kind: 'crystal', geo: crystalGeometry(1), count: 45, scale: [1.5, 4.5] }] : [];
+    case 'forest': return hi ? [
+      { kind: 'tree', geo: treeGeo(false), count: 230, scale: [16, 40] },
+      { kind: 'mushroom', geo: mushroomGeo(), count: 90, scale: [4, 13], band: [11, 90] },
+      { kind: 'rock', geo: asteroidGeometry(25), count: 20, scale: [2, 6], tint: 0x6a7a5a },
+    ] : [{ kind: 'tree', geo: treeGeo(false), count: 60, scale: [20, 42] }];
+    case 'core': return hi ? [
+      { kind: 'root', geo: deadTreeGeo(), count: 70, scale: [12, 34], band: [16, 220] },
+      { kind: 'crystal', geo: crystalGeometry(1), count: 22, scale: [2, 5.5], band: [12, 120] },
+    ] : [{ kind: 'root', geo: deadTreeGeo(), count: 24, scale: [20, 40], band: [14, 9999] }];
     default: return [];
   }
 }
@@ -174,7 +212,7 @@ export function buildChunkProps(terrain: TerrainType, x0: number, z0: number, si
   for (const spec of specs) {
     const im = new THREE.InstancedMesh(spec.geo, M[spec.kind], spec.count);
     im.userData.noCast = true;
-    im.receiveShadow = spec.kind !== 'crystal';
+    im.receiveShadow = spec.kind !== 'crystal' && spec.kind !== 'root';
     let n = 0;
     for (let tries = 0; tries < spec.count * 3 && n < spec.count; tries++) {
       const x = x0 + rnd() * size, z = z0 + rnd() * size;
@@ -192,6 +230,8 @@ export function buildChunkProps(terrain: TerrainType, x0: number, z0: number, si
         if (d < 15) continue;
       } else if (spec.kind === 'building') {
         if (d < 16 || slope > 6) continue;
+      } else if (spec.band) {
+        if (d < spec.band[0] || d > spec.band[1] || (spec.kind === 'mushroom' && slope > 5)) continue;
       } else if (spec.kind === 'crystal') {
         if (d < 7 || d > 15) continue;
       }

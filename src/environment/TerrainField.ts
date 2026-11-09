@@ -33,7 +33,7 @@ export interface BiomeProfile {
   flat?: boolean;      // city: levelled ground
 }
 
-export const GROUND_BIOMES: TerrainType[] = ['atmosphere', 'cave', 'storm', 'ice', 'lava', 'city'];
+export const GROUND_BIOMES: TerrainType[] = ['atmosphere', 'cave', 'storm', 'ice', 'lava', 'city', 'forest', 'core'];
 
 const P: Partial<Record<TerrainType, BiomeProfile>> = {
   atmosphere: {
@@ -71,6 +71,20 @@ const P: Partial<Record<TerrainType, BiomeProfile>> = {
     liquid: null, liquidOffset: 0,
     low: 0x1c2230, mid: 0x262e40, high: 0x30384c, peak: 0x3a4458, rock: 0x20242e, snowLine: 1.2,
     fog: 0x141a2c, roughness: 0.8, flat: true,
+  },
+  // A narrow canyon smothered in giant growth, with a creek on its floor.
+  forest: {
+    clearance: 14, valley: 24, hillAmp: 6, hillFreq: 0.02, mountAmp: 135, mountFreq: 0.006,
+    liquid: 'water', liquidOffset: 2.6,
+    low: 0x4a5a30, mid: 0x2f6a34, high: 0x3f6a3e, peak: 0x6a8a52, rock: 0x4c463a, snowLine: 1.2,
+    fog: 0x7aa88a, roughness: 0.95,
+  },
+  // Inside the planet: not rock but living tissue, lakes of liquid light.
+  core: {
+    clearance: 15, valley: 32, hillAmp: 8, hillFreq: 0.02, mountAmp: 150, mountFreq: 0.007,
+    liquid: 'water', liquidOffset: 5,
+    low: 0x3a2a6a, mid: 0x5a3a9a, high: 0x34489a, peak: 0x7ae8ff, rock: 0x241a52, snowLine: 0.5,
+    fog: 0x1a0a3a, roughness: 0.6,
   },
 };
 

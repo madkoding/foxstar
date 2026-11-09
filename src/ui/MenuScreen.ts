@@ -3,6 +3,7 @@
 // sweep. The live 3D scene (ship orbit) shows through the translucent panel.
 
 import { getBestScore } from './bestScore';
+import { getEnding } from './EndingScreen';
 
 export class MenuScreen {
   private element: HTMLElement;
@@ -41,6 +42,14 @@ export class MenuScreen {
   show(): void {
     const best = getBestScore();
     if (this.bestEl) this.bestEl.textContent = best > 0 ? `RÉCORD ${best.toLocaleString()}` : '';
+    // The tagline is the lie — until the player has seen through it.
+    const sub = document.getElementById('menu-sub');
+    const ending = getEnding();
+    if (sub) {
+      sub.textContent = ending === 'good' ? 'El planeta respira. Vuela con él.'
+        : ending === 'bad' ? 'Cosecha completada. ¿Estás seguro?'
+        : 'Purga la corrupción. Restaura el orden.';
+    }
     this.element.classList.remove('hidden');
   }
 
