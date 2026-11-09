@@ -33,7 +33,7 @@ Rail shooter estilo **Star Fox** hecho en **Three.js 0.160 + TypeScript 5.4 + Vi
 - **Modo cine:** barras de letterbox, HUD oculto, controles bloqueados, nave invulnerable y las líneas de Lyra como **subtítulos** en la barra inferior. Las aperturas de etapa se saltan con una pulsación nueva de `FUEGO`.
 - **Planos de reacción** dentro del juego: el primer cristal que "canta" (etapa 4) y la primera bomba sobre la ciudad (etapa 6).
 - **Voces** con la síntesis de voz del navegador en español: Lyra (ritmo y tono según su estado) y una segunda voz, más plana, para el SENSOR. El panel espera a que termine cada frase, así que nunca se pisan. Sin voz en español disponible, o con `?voice=0`, vuelve a los blips.
-- **Música original sintetizada** (`audio/ScoreSynth.ts`): lamento en re menor para el dolor del Guardián y la elección; tema cálido en re mayor para el epílogo.
+- **Dos temas originales** (`public/music/`, generados con ElevenLabs Music vía Higgsfield): un lamento en re menor para el dolor del Guardián y la elección, y un tema cálido en re mayor para el epílogo. `audio/ScoreSynth.ts` los reproduce en bucle con fundido cruzado; si un archivo no carga, cae a una versión sintetizada en vivo.
 - **Cielos pintados por código** (`environment/PaintedSky.ts`) para el bosque y el núcleo; **copos que se derriten en el cristal** en las cumbres; el **Guardián, sano, vigila el epílogo**.
 
 ## Ejecutar
