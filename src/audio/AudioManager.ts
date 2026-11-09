@@ -53,6 +53,12 @@ export class AudioManager {
     return this.reverb;
   }
 
+  /** Shared output for other synths (music cues). Null before first use fails. */
+  getBus(): { ctx: AudioContext; out: AudioNode } | null {
+    const ctx = this.ensureContext();
+    return ctx && this.masterGain ? { ctx, out: this.masterGain } : null;
+  }
+
   get muted(): boolean {
     return this._muted;
   }

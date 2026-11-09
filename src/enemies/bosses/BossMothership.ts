@@ -210,6 +210,17 @@ export class BossMothership extends BossBase {
     this.destroy();
   }
 
+  /** Epilogue: simply be there — healed, calm, no alarm, no fight. */
+  appear(position: THREE.Vector3): void {
+    this.group.position.copy(position);
+    this._active = true;
+    this._age = 4;
+    this._pacified = true;
+    this._exposed = false;
+    this._pain = 0;
+    this.group.visible = true;
+  }
+
   /** Good ending: the threat is gone; the Guardian heals and stays. */
   pacify(): void {
     this._pacified = true;

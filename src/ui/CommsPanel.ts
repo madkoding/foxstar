@@ -21,6 +21,10 @@ export class CommsPanel {
 
   /** Called for every few revealed characters (voice blip). */
   onBlip: ((who: Line['who']) => void) | null = null;
+  /** Called when a new line starts (voice-over). */
+  onLine: ((line: Line) => void) | null = null;
+  /** Called when speech must stop at once (interrupt, shutdown, reset). */
+  onHush: (() => void) | null = null;
 
   constructor() {
     let el = document.getElementById('comms');
@@ -50,7 +54,7 @@ export class CommsPanel {
     if (!lines.length) return;
     const usable = this.dead ? lines.filter(l => l.who !== 'LYRA') : lines;
     if (!usable.length) return;
-    if (interrupt) { this.queue.length = 0; this.current = null; }
+    if (interrupt) { this.queue.length = 0; this.current = null; this.onHush?.(); }
     this.queue.push(...usable);
   }
 
@@ -61,6 +65,7 @@ export class CommsPanel {
     this.dead = true;
     this.queue = this.queue.filter(l => l.who !== 'LYRA');
     if (this.current?.who === 'LYRA') this.current = null;
+    this.onHush?.();
     if (!this.current) this.root.classList.remove('open');
   }
 
@@ -75,6 +80,7 @@ export class CommsPanel {
       this.nameEl.textContent = next.who === 'LYRA' ? 'LYRA' : 'SENSOR · SIN FILTRAR';
       this.textEl.textContent = '';
       this.root.classList.add('open');
+      this.onLine?.(next);
     }
     const line = this.current;
     const total = line.text.length;
@@ -100,6 +106,7 @@ export class CommsPanel {
     this.queue.length = 0;
     this.current = null;
     this.dead = false;
+    this.onHush?.();
     this.root.classList.remove('open', 'talking');
     this.setMood('warm');
   }

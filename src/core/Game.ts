@@ -41,6 +41,8 @@ import { ObstacleManager } from '../fx/ObstacleManager';
 import { PlayerLifeManager } from '../player/PlayerLifeManager';
 import { AudioManager } from '../audio/AudioManager';
 import { MusicPlayer } from '../audio/MusicPlayer';
+import { ScoreSynth } from '../audio/ScoreSynth';
+import { VoiceSynth } from '../audio/VoiceSynth';
 import { HUD } from '../ui/HUD';
 import { MenuScreen } from '../ui/MenuScreen';
 import { PauseOverlay } from '../ui/PauseOverlay';
@@ -48,6 +50,7 @@ import { GameOverScreen } from '../ui/GameOverScreen';
 import { EndingScreen, type EndingKind } from '../ui/EndingScreen';
 import { Briefing } from '../ui/Briefing';
 import { ChoicePrompt } from '../ui/ChoicePrompt';
+import { saveStage } from '../ui/progress';
 import { LivesDisplay } from '../ui/LivesDisplay';
 import { OffScreenIndicator } from '../ui/OffScreenIndicator';
 import { Announcer } from '../ui/Announcer';
@@ -58,6 +61,13 @@ import type { LevelDefinition, StageMechanics, TerrainType } from '../levels/Lev
 import { StoryDirector } from '../story/StoryDirector';
 import { CHOICE_NAGS, ENDING_BAD, ENDING_GOOD_PROTEST, ENDING_GOOD_STATIC, EPILOGUE } from '../story/StoryData';
 import { AmbientMotes } from '../fx/AmbientMotes';
+import { CockpitGlass } from '../fx/CockpitGlass';
+import {
+  stageIntroShots, stageOutroShots, guardianEntranceShots, guardianPainShots, exposedShots,
+  harvestShots, epilogueShots, shotsLength, SACRIFICE, REACTION,
+} from '../story/Cinematics';
+import { BossMothership } from '../enemies/bosses/BossMothership';
+import { heightAt, getTerrainBiome } from '../environment/TerrainField';
 import { EnemyMeshFactory } from '../enemies/EnemyMeshFactory';
 import { railAtZ } from '../environment/RailShape';
 
@@ -109,6 +119,8 @@ export class Game {
   private lifeManager: PlayerLifeManager;
   private audioManager: AudioManager;
   private musicPlayer: MusicPlayer;
+  private score: ScoreSynth;
+  private voice: VoiceSynth;
   private hud: HUD;
   private menuScreen: MenuScreen;
   private pauseOverlay: PauseOverlay;
@@ -118,6 +130,7 @@ export class Game {
   private choicePrompt: ChoicePrompt;
   private story: StoryDirector;
   private motes: AmbientMotes;
+  private glass: CockpitGlass;
   private livesDisplay: LivesDisplay;
   private announcer: Announcer;
   private scorePopups: ScorePopups;
@@ -163,6 +176,10 @@ export class Game {
   private _pulseTimer = 0;
   private _ricochetCd = 0;
   private _disarmed = false;
+  private _cinema = false;
+  private _introLen = 1.6;
+  private _choiceT = 0;
+  private _guardian: BossMothership | null = null;
   private _ending: EndingKind | null = null;
   private _choiceFireUp = false;
   private _nagIndex = 0;
@@ -193,6 +210,18 @@ export class Game {
       window.innerWidth, window.innerHeight,
     );
     this.fx = new FxDirector(this.postProcessing, this.cameraRig.camera3D);
+    // Cutscene cameras roam off the rail: keep them above ground and water,
+    // inside the cave tube and out of the city's towers.
+    this.cameraRig.constrain = (p) => {
+      if (!hasGround()) return;
+      const biome = getTerrainBiome();
+      const rail = railAtZ(p.z);
+      const reach = biome === 'cave' ? 10 : biome === 'city' ? 12 : biome === 'forest' ? 18 : 30;
+      p.x = rail.x + THREE.MathUtils.clamp(p.x - rail.x, -reach, reach);
+      if (biome === 'cave') p.y = Math.min(p.y, rail.y + 9);
+      const floor = Math.max(heightAt(p.x, p.z), liquidAt(p.z) ?? -1e9) + 2.5;
+      if (p.y < floor) p.y = floor;
+    };
 
     this.inputMapper = new InputMapper();
     this.railController = new RailController(RailFactory.create(), RAIL.RAIL_SPEED);
@@ -213,6 +242,7 @@ export class Game {
     this.spaceScenery = new SpaceScenery(this.scene, this.cameraRig.camera3D);
     this.waterWake = new WaterWake(this.scene);
     this.motes = new AmbientMotes(this.scene);
+    this.glass = new CockpitGlass();
     // Keep fog + water reflections in sync with the active sky photo.
     this.pmrem = new THREE.PMREMGenerator(this.renderer);
     this.skybox.onSkyChange = (tex, horizon) => {
@@ -242,6 +272,8 @@ export class Game {
     };
     this.audioManager = new AudioManager();
     this.musicPlayer = new MusicPlayer();
+    this.score = new ScoreSynth(() => this.audioManager.getBus());
+    this.voice = new VoiceSynth();
 
     this.hud = new HUD();
     this.livesDisplay = new LivesDisplay();
@@ -252,14 +284,17 @@ export class Game {
     this.story.comms.onBlip = (who) => {
       const mood = this.story.comms.currentMood;
       if (who === 'SENSOR') this.audioManager.playVoiceBlip(1250);
-      else this.audioManager.playVoiceBlip(mood === 'cold' ? 190 : mood === 'urgent' ? 620 : 520, mood === 'cold');
+      else if (!this.voice.available) this.audioManager.playVoiceBlip(mood === 'cold' ? 190 : mood === 'urgent' ? 620 : 520, mood === 'cold');
     };
+    // Lyra has a real voice where the browser can give her one.
+    this.story.comms.onLine = (line) => { if (line.who === 'LYRA') this.voice.speak(line.text, this.story.comms.currentMood); };
+    this.story.comms.onHush = () => this.voice.cancel();
     // ?stage=N starts a new game on stage N (1-8): handy for testing a beat.
     const wanted = Number(new URLSearchParams(window.location.search).get('stage'));
     if (wanted >= 1) this._startStage = Math.floor(wanted) - 1;
     this.briefing = new Briefing(() => this.startGame(this._startStage));
     this.choicePrompt = new ChoicePrompt();
-    this.menuScreen = new MenuScreen(() => this.openBriefing());
+    this.menuScreen = new MenuScreen(() => this.openBriefing(), (stage) => this.startGame(stage));
     this.pauseOverlay = new PauseOverlay({
       resume: () => this.resumeGame(),
       quit: () => this.returnToMenu(),
@@ -285,9 +320,12 @@ export class Game {
       const reveal = this.levelManager.currentIndex >= TRUTH_BOMB_FROM;
       if (reveal) {
         this.fx.flash(0.3, 0xfff4dd, 6);
-        this.fx.truthPulse(0.5, 1);
-        this.glitchHud();
         this._bombsUsed++;
+        // The first time, the film cuts high above the avenue to show it.
+        const first = this._bombsUsed === 1 && this.levelManager.currentIndex === TRUTH_BOMB_FROM && this._seq === 'none';
+        if (first) this.cine(REACTION.city);
+        this.fx.truthPulse(first ? 1.3 : 0.5, 1);
+        this.glitchHud();
         this.story.trigger(this._bombsUsed === 1 ? 'bomb' : 'bombAgain', true);
       } else {
         this.fx.flash(0.75, 0xfff4dd, 2.2);
@@ -408,13 +446,21 @@ export class Game {
       this.audioManager.playAlarm();
       this.fx.flash(0.22, 0x7fe8d8, 2);
       this.musicPlayer.setMood(1, 0.75);   // a respawn restarts the encounter calm
+      this.score.stop(1);
       this.story.trigger('bossSpawn', true);
+      const b = this.waveManager.bossInstance;
+      if (b && this._seq === 'none') this.cine(guardianEntranceShots(), b.position);
     });
     bus.on(GameEvent.BOSS_PHASE, (p) => {
       if (p.phase < 2) return;
       // Not rage: pain. The music sags, the aurora runs wild.
       this.story.trigger('bossPhase2', true);
-      this.musicPlayer.setMood(0.86, 0.6);
+      const b = this.waveManager.bossInstance;
+      if (b && this._seq === 'none') { this.cine(guardianPainShots(), b.position); this.fx.slowMo(0.4, 1.2, 0.5); }
+      this.enemyProjectileMgr.clear();
+      // The soundtrack sags and the Guardian's own theme rises under it.
+      this.musicPlayer.setMood(0.86, 0.28);
+      this.score.play('guardian');
       this.fx.flash(0.35, 0xff5c9a, 2.5);
       this.fx.aberrate(1.2);
       this.cameraRig.addTrauma(0.5);
@@ -422,7 +468,7 @@ export class Game {
     });
     bus.on(GameEvent.BOSS_PULSE, () => {
       // The Guardian shoves the ship back down the rail. It does no damage.
-      if (this._seq !== 'none' || this.lifeManager.phase !== 'playing') return;
+      if (this.sequenceActive || this.lifeManager.phase !== 'playing') return;
       this._speedMult = -7;
       this.fx.flash(0.28, 0x7fe8d8, 3);
       this.fx.kickFov(-9);
@@ -486,12 +532,16 @@ export class Game {
     this.stateManager.transition(GameState.PAUSED);
     this.pauseOverlay.show();
     this.musicPlayer.pause();
+    this.score.setPaused(true);
+    this.voice.pause();
   }
 
   private resumeGame(): void {
     if (this.stateManager.current !== GameState.PAUSED) return;
     this.pauseOverlay.hide();
     this.musicPlayer.resume();
+    this.score.setPaused(false);
+    this.voice.resume();
     this.stateManager.transition(GameState.PLAYING);
   }
 
@@ -507,6 +557,7 @@ export class Game {
     this.enemyManager.kamikaze = !!level.mechanics.kamikaze;
     this.musicPlayer.setMood(1, 0.75);
     this.story.beginStage(levelIndex);
+    if (!this._ending) saveStage(levelIndex);   // the epilogue is not a checkpoint
     this.applyEnvironment(level);
     this.railController = new RailController(
       RailFactory.createFromConfig(level.rail),
@@ -590,6 +641,7 @@ export class Game {
     this.spaceScenery.apply(env.terrain, this.cameraRig.camera3D.position);
     this.fx.setHeat(level.mechanics.heat ?? 0);
     this.motes.apply(level.mechanics.motes);
+    this.glass.setSnowing(level.mechanics.motes === 'snow');
   }
 
   private returnToMenu(): void {
@@ -624,6 +676,8 @@ export class Game {
     this._wind = 0;
     this._pulseTimer = 0;
     this.audioManager.muted = false;
+    this.voice.muted = false;
+    this.score.stop(0.8);
     delete document.body.dataset.ending;
     this.enemyManager.kamikaze = false;
     this.clearCompanions();
@@ -706,6 +760,12 @@ export class Game {
     this.skybox.update();
     this.spaceScenery.update(ambientDt);
     this.updateSunShadows();
+    const inShot = this.cameraRig.shotActive && state !== GameState.MENU;
+    if (inShot !== this._cinema) {
+      this._cinema = inShot;
+      document.body.classList.toggle('cinema', inShot);
+    }
+    this.fx.setCineFov(inShot ? this.cameraRig.shotFov : 0);
     this.fx.update(rawDt, state === GameState.PAUSED);
     // Planar water reflection; follows the adaptive quality fallback.
     const liquids = this.terrainManager.liquids;
@@ -755,6 +815,7 @@ export class Game {
     this.waveManager.setEngageMode(true);
     this.enemyProjectileMgr.clear();
     this.story.playOutro();
+    this.cine(stageOutroShots());
   }
 
   private beginWarpIn(first: boolean): void {
@@ -769,10 +830,22 @@ export class Game {
     this.audioManager.playWarpArrive();
     const lvl = this.levelManager.currentLevel;
     this.announcer.stageIntro(lvl.id, lvl.name, this.levelManager.totalLevels);
+    // Every stage opens like a film scene: establishing shot, closer shot,
+    // then the cut into the cockpit view.
+    const shots = stageIntroShots(this.levelManager.currentIndex);
+    this.cine(shots);
+    this._introLen = Math.max(1.6, shotsLength(shots));
   }
 
+  // True during scripted sequences AND while a film shot is on screen: the
+  // ship is untouchable and nobody fires while the camera is telling the story.
   private get sequenceActive(): boolean {
-    return this._seq !== 'none';
+    return this._seq !== 'none' || this.cameraRig.shotActive;
+  }
+
+  /** Cut to a sequence of film shots (letterbox on, HUD off, controls locked). */
+  private cine(shots: Parameters<CameraRig['playShots']>[0], target: THREE.Vector3 | null = null): void {
+    this.cameraRig.playShots(shots, target);
   }
 
   private once(flag: string): boolean {
@@ -817,14 +890,12 @@ export class Game {
           this.fx.setWarp(0);
           this._speedMultTarget = 1;
           this.fx.kickFov(-6);
+          this.story.playIntro();   // Lyra speaks over the opening shots
         }
-        if (t >= 1.1 && this.once('engage')) {
+        if (t >= this._introLen - 0.5 && this.once('engage')) {
           this.lifeManager.forceEngage();
         }
-        if (t >= 1.6) {
-          this._seq = 'none';
-          this.story.playIntro();
-        }
+        if (t >= this._introLen) this._seq = 'none';
         break;
       }
       case 'endBad': this.updateEndBad(t, dt); break;
@@ -852,9 +923,10 @@ export class Game {
     this.audioManager.playLament();
     this._crystals++;
     if (this._crystals === 1) {
-      this.fx.truthPulse(0.14, 0.85);
+      this.fx.truthPulse(0.3, 0.85);
       this.glitchHud();
       this.story.trigger('crystal', true);
+      if (this._seq === 'none') { this.cine(REACTION.crystal); this.fx.slowMo(0.3, 1.1, 0.5); }
     } else if (this._crystals === 3) {
       this.fx.truthPulse(0.08, 0.6);
       this.story.trigger('crystalAgain');
@@ -869,6 +941,9 @@ export class Game {
     this._seqTime = 0;
     this._seqFlags.clear();
     this._choiceFireUp = false;
+    this._choiceT = 0;
+    const b = this.waveManager.bossInstance;
+    if (b) this.cine(exposedShots(), b.position);
     this._nagIndex = 0;
     this._nagTimer = 7;
     this.enemyProjectileMgr.clear();
@@ -877,18 +952,21 @@ export class Game {
     this.fx.slowMo(0.25, 1.4, 0.7);
     this.fx.flash(0.6, 0xffffff, 1.6);
     this.cameraRig.addTrauma(0.5);
-    this.musicPlayer.setMood(0.7, 0.3);
+    this.musicPlayer.setMood(0.7, 0.12);
+    if (!this.score.playing) this.score.play('guardian');
     // Time all but stops (and the arena rail can't run out while you decide).
     this._speedMultTarget = 0.12;
     this.story.trigger('exposed', true);
   }
 
   private updateChoice(dt: number, input: InputState): void {
-    const t = this._seqTime;
-    if (t < 1.6) return;   // let the moment land before taking any input
+    // Let the two shots play (hunter and prey; the bare heart) before the
+    // film hands the decision to the player.
+    if (this._seqTime < 1.6 || this.cameraRig.shotActive) return;
+    this._choiceT += dt;
     if (this.once('prompt')) this.choicePrompt.show(this.weaponSystem.bombs);
     // The other way out only leaks through after Lyra has had her say.
-    if (t >= 5.5 && this.once('alt')) { this.choicePrompt.revealAlternative(); this.glitchHud(); }
+    if (this._choiceT >= 4 && this.once('alt')) { this.choicePrompt.revealAlternative(); this.glitchHud(); }
     // Fire was probably held down through the fight: require a fresh press.
     if (!input.fire) this._choiceFireUp = true;
 
@@ -915,6 +993,7 @@ export class Game {
     if (boss) {
       const dir = boss.position.clone().sub(ship).normalize();
       this.weaponSystem.fireLaser(ship.clone(), dir, dir.clone());
+      this.cine(harvestShots(), boss.position);
     }
   }
 
@@ -922,6 +1001,9 @@ export class Game {
     if (t >= 0.3 && this.once('blow')) {
       // The planet breaks without a sound.
       this.musicPlayer.stop();
+      this.score.stop(0.3);
+      this.voice.muted = true;
+      this.voice.cancel();
       this.audioManager.muted = true;
       this.waveManager.bossInstance?.finalBlow();
       this.fx.setSaturation(0, 0.45);
@@ -945,6 +1027,7 @@ export class Game {
     this.choicePrompt.hide();
     // Turn the ship around: the weapon is behind you. It always was.
     this.playerShip.setYaw(Math.PI);
+    this.cine(SACRIFICE.turn);
     this.story.say(ENDING_GOOD_PROTEST, true);
     this.musicPlayer.setMood(0.6, 0.2);
     this._goodBombs = Math.max(1, this.weaponSystem.bombs);
@@ -957,7 +1040,7 @@ export class Game {
     const n = this._goodBombs;
     for (let i = 0; i < n; i++) {
       if (t >= 1.4 + i * 0.24 && this.once(`bomb${i}`)) {
-        if (i === 0) this.weaponSystem.spendAllBombs();
+        if (i === 0) { this.weaponSystem.spendAllBombs(); this.cine(SACRIFICE.bombs); }
         const at = ship.clone().add(new THREE.Vector3((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 3, 2 + Math.random() * 3));
         this.explosionSystem.spawnNuclear(at, 0xffe0b0);
         this.audioManager.playExplosion();
@@ -980,11 +1063,14 @@ export class Game {
       document.body.dataset.lyra = 'free';
       this.livesDisplay.setVisible(false);
       this.musicPlayer.stop();
+      this.score.stop(1.5);
       this.playerShip.setYaw(0);
+      this.cine(SACRIFICE.silence);
     }
     if (t >= t1 + 4.2 && this.once('aurora')) {
       // The Guardian, hurt but alive, answers: not a blow — an embrace.
       this.waveManager.pacifyBoss();
+      this.cine(SACRIFICE.aurora, this.waveManager.bossInstance?.position ?? null);
       this.audioManager.playAuroraSwell();
       this.fx.flash(0.85, 0x7dffd0, 0.55);
       this.fx.bloomPulse(2);
@@ -999,6 +1085,7 @@ export class Game {
       this.fx.setWarp(1);
       this._speedMultTarget = 6;
       this.audioManager.playWarp();
+      this.cine(SACRIFICE.expel);
     }
     if (t >= t1 + 10.2) this.beginEpilogue();
   }
@@ -1023,9 +1110,13 @@ export class Game {
     this._speedMultTarget = 1;
     this.audioManager.playWarpArrive();
     this.musicPlayer.stop();
-    this.musicPlayer.play();
-    this.musicPlayer.setMood(0.92, 0.5);
+    this.score.play('epilogue', 4);
     this.spawnCompanions();
+    this.cine(epilogueShots());
+    // The Guardian, healed, keeping watch over the belt.
+    this._guardian = new BossMothership();
+    this.scene.add(this._guardian.mesh);
+    this._guardian.appear(this.railController.frameAhead(150).position);
   }
 
   private updateEpilogue(t: number, dt: number): void {
@@ -1048,6 +1139,7 @@ export class Game {
     this.hud.setVisible(false);
     this.livesDisplay.setVisible(false);
     this.endingScreen.show(kind, this.scoreSystem.score);
+    saveStage(0);   // the story is told; nothing left to continue
     this.stateManager.transition(GameState.VICTORY);
   }
 
@@ -1078,6 +1170,11 @@ export class Game {
       c.obj.lookAt(c.obj.position.clone().add(f.forward));
       c.obj.rotateZ(Math.cos(tm * 0.5 + c.phase) * -0.25);
     }
+    if (this._guardian) {
+      const f = this.railController.frameAhead(150);
+      const anchor = f.position.addScaledVector(f.right, -46).addScaledVector(f.up, 16);
+      this._guardian.update(dt, this.playerShip.position, anchor);
+    }
   }
 
   private clearCompanions(): void {
@@ -1091,6 +1188,11 @@ export class Game {
       });
     }
     this._companions = [];
+    if (this._guardian) {
+      this.scene.remove(this._guardian.mesh);
+      this._guardian.dispose();
+      this._guardian = null;
+    }
   }
 
   // ── Gameplay frame ────────────────────────────────────────────────────────
@@ -1155,6 +1257,10 @@ export class Game {
       this._wind *= Math.exp(-3 * dt);
     }
 
+    // While the film is cutting between shots the ship flies itself.
+    const inShot = this.cameraRig.shotActive;
+    if (inShot) { targetScreenX = 0; targetScreenY = 0; }
+
     // Obstacle knockback impulse (decays). The old code pushed the ship's
     // world position, which setPosition() overwrote the very next frame.
     targetScreenX += this._knockX;
@@ -1189,7 +1295,7 @@ export class Game {
     );
 
     // Barrel roll (Q/E, LB/RB)
-    if (alive && (input.rollLeft || input.rollRight)) {
+    if (alive && !inShot && (input.rollLeft || input.rollRight)) {
       if (this.playerShip.barrelRoll(input.rollLeft ? -1 : 1)) {
         this.audioManager.playRoll();
         this.fx.aberrate(0.3);
@@ -1243,10 +1349,11 @@ export class Game {
     // Camera rides the rail, not the ship. It only banks slightly with the
     // ship's offset so the frame leans toward the player's position.
     this.cameraRig.setTarget(railCameraPos, screenOffset.x, screenOffset.y);
+    this.cameraRig.setSubject(shipWorldPos.position);
     this.cameraRig.update(dt);
 
     if (this._seq === 'choice') this.updateChoice(dt, input);
-    const canFire = this.lifeManager.phase === 'playing' && !this._disarmed &&
+    const canFire = this.lifeManager.phase === 'playing' && !this._disarmed && !inShot &&
       (this._seq === 'none' || this._seq === 'warpIn' || this._seq === 'clear');
     if (input.fire && canFire) this.weaponSystem.fireLaser(shipWorldPos.position.clone(), fireDir.clone(), shipWorldPos.forward.clone());
     if (input.bomb && canFire) this.weaponSystem.fireBomb(shipWorldPos.position.clone(), fireDir.clone());
@@ -1363,7 +1470,7 @@ export class Game {
         this.fx.kickFov(1.4);
       }
     }
-    this.story.update(dt, this.railController.stageProgress, alive && this._seq === 'none');
+    this.story.update(dt, this.railController.stageProgress, alive && !this.sequenceActive);
 
     // Low hull → heartbeat vignette.
     const hp = this.playerShip.health;
@@ -1505,7 +1612,7 @@ export class Game {
 
   private handleBossAttacks(): void {
     if (!this.waveManager.bossActive || !this.waveManager.bossInstance) return;
-    if (this.lifeManager.phase !== 'playing' || this._seq !== 'none') return;
+    if (this.lifeManager.phase !== 'playing' || this.sequenceActive) return;
     const boss = this.waveManager.bossInstance;
     if (!boss.canAttack()) return;
 
@@ -1539,6 +1646,8 @@ export class Game {
     this.obstacleManager.dispose();
     this.audioManager.dispose();
     this.musicPlayer.dispose();
+    this.score.dispose();
+    this.voice.cancel();
     this.hud.dispose();
     this.menuScreen.dispose();
     this.pauseOverlay.dispose();
@@ -1547,6 +1656,7 @@ export class Game {
     this.briefing.dispose();
     this.clearCompanions();
     this.motes.dispose();
+    this.glass.dispose();
     this.offScreenIndicator.dispose();
     this.announcer.clear();
     this.scorePopups.dispose();

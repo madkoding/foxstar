@@ -52,6 +52,7 @@ export class FxDirector {
   private truthStrength = 1;
   private heat = 0;
   private heatTarget = 0;
+  private cineFov = 0;
 
   private params: CinematicParams = {
     aberration: 0, zoomBlur: 0, flash: 0, flashColor: new THREE.Color(1, 1, 1),
@@ -105,6 +106,8 @@ export class FxDirector {
   setDanger(amount: number): void { this.dangerTarget = THREE.MathUtils.clamp(amount, 0, 1); }
   /** `rate` = how fast the grade moves (lower = slow cinematic drain). */
   setSaturation(s: number, rate = 3): void { this.saturationTarget = s; this.saturationRate = rate; }
+  /** Lens change for the current film shot (instant: it follows hard cuts). */
+  setCineFov(degrees: number): void { this.cineFov = degrees; }
   setHeat(amount: number): void { this.heatTarget = THREE.MathUtils.clamp(amount, 0, 1); }
 
   /** Show the unfiltered world for `seconds` (real time), then snap back. */
@@ -135,6 +138,7 @@ export class FxDirector {
     this.saturationRate = 3;
     this.truth = this.truthTimer = 0;
     this.heat = this.heatTarget = 0;
+    this.cineFov = 0;
     this.timekeeper.timeScale = 1;
   }
 
@@ -181,7 +185,7 @@ export class FxDirector {
     this.truth = damp(this.truth, this.truthTimer > 0 ? this.truthStrength : 0, 30, realDt);
 
     // Camera FOV: base + boost stretch + warp stretch + impulses.
-    const fov = baseFovFor(this.camera.aspect) + this.boost * 12 + this.warp * 38 + this.fovImpulse;
+    const fov = baseFovFor(this.camera.aspect) + this.boost * 12 + this.warp * 38 + this.fovImpulse + this.cineFov;
     if (Math.abs(this.camera.fov - fov) > 0.01) {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();

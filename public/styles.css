@@ -1485,3 +1485,43 @@ body.touch #choice { top: 44%; }
 @media (max-height: 500px) {
   body.touch #comms { top: calc(96px + env(safe-area-inset-top)); width: min(440px, 56vw); }
 }
+
+/* ═══ Cinema mode: the film takes the camera ═══════════════════════════════ */
+#letterbox-top, #letterbox-bottom {
+  position: absolute; left: 0; right: 0; height: 12vh; background: #000; z-index: 66;
+  pointer-events: none; transition: transform .45s var(--ease-out-expo);
+}
+#letterbox-top { top: 0; transform: translateY(-101%); }
+#letterbox-bottom { bottom: 0; transform: translateY(101%); }
+body.cinema #letterbox-top, body.cinema #letterbox-bottom { transform: none; }
+#hud, #lives-display, #touch-controls { transition: opacity .3s ease; }
+body.cinema #hud, body.cinema #lives-display, body.cinema #touch-controls, body.cinema #engage-text { opacity: 0 !important; }
+/* In cinema mode Lyra's panel becomes film subtitles inside the lower bar. */
+body.cinema #comms, body.cinema.touch #comms {
+  top: auto; bottom: 1.6vh; width: min(900px, 94vw); justify-content: center;
+  background: none; border-left: none; box-shadow: none; clip-path: none; padding: 0 12px;
+}
+body.cinema #comms .comms-wave { display: none; }
+body.cinema #comms .comms-body { text-align: center; }
+body.cinema #comms .comms-name { font-size: 10px; margin-bottom: 2px; opacity: .85; }
+body.cinema #comms .comms-text { font-size: clamp(14px, 2.1vh + .4vw, 20px); text-shadow: 0 0 10px #000, 0 2px 4px #000; }
+body.cinema .ann-stage { top: 30%; }
+body.cinema .ann-caption { top: auto; bottom: 14vh; }
+#menu-screen .menu-button.hidden { display: none; }
+
+/* ── Snow melting on the canopy (Cumbres de la Bruma) ── */
+#glass { position: absolute; inset: 0; z-index: 9; pointer-events: none; overflow: hidden; display: none; }
+#glass.snowing { display: block; }
+body:not(.in-game) #glass, body.cinema #glass { display: none; }
+#glass i {
+  position: absolute; left: var(--x); top: var(--y); width: var(--s); height: var(--s); border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, .95), rgba(225, 240, 255, .55) 45%, rgba(200, 225, 255, 0) 72%);
+  opacity: 0; animation: flakeMelt var(--t) ease-in var(--d) infinite;
+}
+@keyframes flakeMelt {
+  0%   { opacity: 0; transform: scale(.2); filter: blur(0); }
+  6%   { opacity: .95; transform: scale(1); }
+  45%  { opacity: .8; transform: scale(1.05); filter: blur(.5px); }
+  70%  { opacity: .55; transform: translateY(18px) scale(.7, 1.5); filter: blur(1.5px); border-radius: 45% 45% 50% 50%; }
+  100% { opacity: 0; transform: translateY(90px) scale(.3, 2.4); filter: blur(2.5px); }
+}

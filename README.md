@@ -25,6 +25,16 @@ Rail shooter estilo **Star Fox** hecho en **Three.js 0.160 + TypeScript 5.4 + Vi
 - **El Guardián** no intenta matarte: fase 1 levanta muros de abanico/anillo y te **empuja hacia atrás**; fase 2 es dolor, no furia. No se puede destruir con fuego normal: queda **expuesto** e indefenso.
 - **La elección final:** `FUEGO` obedece a Lyra (final **La Cosecha**: el mundo pierde el color, silencio, créditos grises). `BOMBA` gira la nave y lanza todas tus bombas contra tu propio Dispositivo de Resonancia (final **FoxStar**: Lyra se apaga entre estática, el Guardián te envuelve en aurora y vuelas libre, sin armas, junto a los que antes eran enemigos).
 - Si pierdes todas las vidas, **reintentar** continúa en la etapa actual. Para probar una etapa concreta: `?stage=N` (1–8).
+- **Progreso guardado:** el menú ofrece `CONTINUAR · ETAPA N` (se guarda en el navegador al entrar a cada etapa y se borra al ver un final).
+
+### Contada como una película
+
+- **Cámaras de cine** (`CameraRig.playShots` + `story/Cinematics.ts`): cada etapa abre con un plano de establecimiento y un plano cercano antes de cortar a la vista de cabina, y cierra con un fly-by y una grúa trasera durante el salto. La entrada del Guardián, su fase de dolor, la elección (plano de perfil de ambos + primer plano del corazón expuesto), los dos finales y el epílogo tienen su propia lista de planos unidos por corte.
+- **Modo cine:** barras de letterbox, HUD oculto, controles bloqueados, nave invulnerable y las líneas de Lyra como **subtítulos** en la barra inferior.
+- **Planos de reacción** dentro del juego: el primer cristal que "canta" (etapa 4) y la primera bomba sobre la ciudad (etapa 6).
+- **Voz de Lyra** con la síntesis de voz del navegador en español (ritmo y tono según su estado; grave y metálica al final). Sin voz en español disponible, o con `?voice=0`, vuelve a los blips.
+- **Música original sintetizada** (`audio/ScoreSynth.ts`): lamento en re menor para el dolor del Guardián y la elección; tema cálido en re mayor para el epílogo.
+- **Cielos pintados por código** (`environment/PaintedSky.ts`) para el bosque y el núcleo; **copos que se derriten en el cristal** en las cumbres; el **Guardián, sano, vigila el epílogo**.
 
 ## Ejecutar
 
@@ -36,6 +46,12 @@ npm run dev
 ```
 
 Abrir la URL que indica Vite (por defecto `http://localhost:5173`).
+
+Tests del guion (coherencia de etapas, líneas, eventos y planos):
+
+```bash
+npm test
+```
 
 Para una build de producción:
 

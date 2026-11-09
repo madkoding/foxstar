@@ -5,6 +5,7 @@
 
 import * as THREE from 'three';
 import type { TerrainType } from '../levels/LevelData';
+import { paintCoreSky, paintForestSky } from './PaintedSky';
 
 // Image per terrain (served from /backgrounds/<terrain>.jpg).
 const IMAGE_PATHS: Record<TerrainType, string> = {
@@ -18,9 +19,15 @@ const IMAGE_PATHS: Record<TerrainType, string> = {
   city:       'backgrounds/city.jpg',
   void:       'backgrounds/void.jpg',
   aurora:     'backgrounds/aurora.jpg',
-  // Story biomes that reuse an existing photo (loaded once, shared).
+  // Fallbacks only: these two biomes get a painted sky (see PAINTED below).
   forest:     'backgrounds/atmosphere.jpg',
   core:       'backgrounds/nebula.jpg',
+};
+
+// Skies painted in code instead of loaded from a photo.
+const PAINTED: Partial<Record<TerrainType, () => HTMLCanvasElement>> = {
+  forest: paintForestSky,
+  core: paintCoreSky,
 };
 
 // Sky (top) and ground (bottom) colors for hemisphere light tinting.
@@ -77,6 +84,7 @@ export class Skybox {
     // One load per unique photo; biomes that share a photo share the texture.
     const byPath = new Map<string, TerrainType[]>();
     for (const t of Object.keys(IMAGE_PATHS) as TerrainType[]) {
+      if (PAINTED[t]) continue;   // painted lazily on first use
       const list = byPath.get(IMAGE_PATHS[t]) ?? [];
       list.push(t);
       byPath.set(IMAGE_PATHS[t], list);
@@ -141,6 +149,14 @@ export class Skybox {
   apply(terrain: TerrainType): void {
     if (terrain === this.current) { this.onSkyChange?.(this.texture, this.horizon); return; }
     this.current = terrain;
+    const painter = PAINTED[terrain];
+    if (painter && !this.loaded[terrain]) {
+      const tex = new THREE.CanvasTexture(painter());
+      tex.colorSpace = THREE.SRGBColorSpace;
+      this.textures[terrain] = tex;
+      this.horizons[terrain] = this.sampleHorizon(tex) ?? undefined;
+      this.loaded[terrain] = true;
+    }
     if (this.loaded[terrain]) this.show(terrain);
     else this.onSkyChange?.(null, null);
   }
