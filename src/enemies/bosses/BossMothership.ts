@@ -62,20 +62,20 @@ export class BossMothership extends BossBase {
     // ── Heart of light ──
     this.core = new THREE.Mesh(
       new THREE.IcosahedronGeometry(R * 0.3, 3),
-      new THREE.MeshBasicMaterial({ color: 0xfff6e0, transparent: true, opacity: 0.95 }),
+      new THREE.MeshBasicMaterial({ color: 0xd8c8a8, transparent: true, opacity: 0.9 }),
     );
     this.group.add(this.core);
     this.coreHalo = new THREE.Sprite(new THREE.SpriteMaterial({
-      map: getSoftParticleTexture(), color: CALM.getHex(), transparent: true,
+      map: getSoftParticleTexture(), color: CALM.getHex(), transparent: true, opacity: 0.4,
       blending: THREE.AdditiveBlending, depthWrite: false,
     }));
-    this.coreHalo.scale.setScalar(R * 2.2);
+    this.coreHalo.scale.setScalar(R * 1.6);
     this.group.add(this.coreHalo);
 
     // ── Petals: translucent shells cupping the heart, like a closed flower ──
     this.petalMat = new THREE.MeshStandardMaterial({
-      color: 0xdff8f0, emissive: CALM.getHex(), emissiveIntensity: 0.55,
-      roughness: 0.35, metalness: 0, transparent: true, opacity: 0.78, side: THREE.DoubleSide,
+      color: 0x9ac8c0, emissive: CALM.getHex(), emissiveIntensity: 0.3,
+      roughness: 0.35, metalness: 0, transparent: true, opacity: 0.78, side: THREE.DoubleSide, envMapIntensity: 0.3,
     });
     const petalGeo = new THREE.SphereGeometry(R * 0.62, 20, 14, 0, Math.PI * 0.42, Math.PI * 0.12, Math.PI * 0.6);
     for (let i = 0; i < 7; i++) {
@@ -262,7 +262,7 @@ export class BossMothership extends BossBase {
     this._tint.copy(CALM).lerp(PAIN, pain);
     this.hitFlash = Math.max(0, this.hitFlash - dt * 6);
     this.petalMat.emissive.copy(this._tint);
-    this.petalMat.emissiveIntensity = 0.55 + this.hitFlash * 1.4 + pain * 0.3;
+    this.petalMat.emissiveIntensity = 0.3 + this.hitFlash * 0.8 + pain * 0.15;
     this.ribbonMat.color.copy(this._tint);
     (this.coreHalo.material as THREE.SpriteMaterial).color.copy(this._tint).lerp(GOLD, 0.25);
     const aura = (this.aura.material as THREE.ShaderMaterial).uniforms;
@@ -276,7 +276,7 @@ export class BossMothership extends BossBase {
     const rate = 1.6 + pain * 4.5;
     const beat = Math.pow(Math.abs(Math.sin(t * rate)), 4);
     this.core.scale.setScalar(1 + beat * (0.12 + pain * 0.2));
-    this.coreHalo.scale.setScalar(this._size * (2.2 + beat * 0.7 + this.hitFlash * 0.5));
+    this.coreHalo.scale.setScalar(this._size * (1.6 + beat * 0.4 + this.hitFlash * 0.3));
 
     // Petals: closed around the heart; phase 2 forces them open, and when
     // exposed they hang fully apart, the heart bare.

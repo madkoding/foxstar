@@ -177,6 +177,8 @@ export class Game {
   private _ricochetCd = 0;
   private _disarmed = false;
   private _cinema = false;
+  private _skipArmed = false;
+  private _skippable = false;
   private _introLen = 1.6;
   private _choiceT = 0;
   private _guardian: BossMothership | null = null;
@@ -283,11 +285,13 @@ export class Game {
     this.story.onMood = (mood) => { document.body.dataset.lyra = mood; };
     this.story.comms.onBlip = (who) => {
       const mood = this.story.comms.currentMood;
+      if (this.voice.available) return;   // spoken aloud instead
       if (who === 'SENSOR') this.audioManager.playVoiceBlip(1250);
-      else if (!this.voice.available) this.audioManager.playVoiceBlip(mood === 'cold' ? 190 : mood === 'urgent' ? 620 : 520, mood === 'cold');
+      else this.audioManager.playVoiceBlip(mood === 'cold' ? 190 : mood === 'urgent' ? 620 : 520, mood === 'cold');
     };
     // Lyra has a real voice where the browser can give her one.
-    this.story.comms.onLine = (line) => { if (line.who === 'LYRA') this.voice.speak(line.text, this.story.comms.currentMood); };
+    this.story.comms.onLine = (line) => this.voice.speak(line.text, line.who === 'LYRA' ? this.story.comms.currentMood : 'sensor');
+    this.story.comms.speaking = () => this.voice.speaking;
     this.story.comms.onHush = () => this.voice.cancel();
     // ?stage=N starts a new game on stage N (1-8): handy for testing a beat.
     const wanted = Number(new URLSearchParams(window.location.search).get('stage'));
@@ -676,7 +680,6 @@ export class Game {
     this._wind = 0;
     this._pulseTimer = 0;
     this.audioManager.muted = false;
-    this.voice.muted = false;
     this.score.stop(0.8);
     delete document.body.dataset.ending;
     this.enemyManager.kamikaze = false;
@@ -892,10 +895,12 @@ export class Game {
           this.fx.kickFov(-6);
           this.story.playIntro();   // Lyra speaks over the opening shots
         }
-        if (t >= this._introLen - 0.5 && this.once('engage')) {
+        // ENGAGE lands on the cut back to the cockpit (its invincibility
+        // blink would otherwise flicker the hull during the last shot).
+        if (t >= this._introLen) {
           this.lifeManager.forceEngage();
+          this._seq = 'none';
         }
-        if (t >= this._introLen) this._seq = 'none';
         break;
       }
       case 'endBad': this.updateEndBad(t, dt); break;
@@ -950,7 +955,7 @@ export class Game {
     this.enemyManager.reset();
     this.weaponSystem.clearProjectiles();
     this.fx.slowMo(0.25, 1.4, 0.7);
-    this.fx.flash(0.6, 0xffffff, 1.6);
+    this.fx.flash(0.25, 0xffffff, 3);
     this.cameraRig.addTrauma(0.5);
     this.musicPlayer.setMood(0.7, 0.12);
     if (!this.score.playing) this.score.play('guardian');
@@ -1002,9 +1007,7 @@ export class Game {
       // The planet breaks without a sound.
       this.musicPlayer.stop();
       this.score.stop(0.3);
-      this.voice.muted = true;
-      this.voice.cancel();
-      this.audioManager.muted = true;
+      this.audioManager.muted = true;   // only Lyra's voice is left in the silence
       this.waveManager.bossInstance?.finalBlow();
       this.fx.setSaturation(0, 0.45);
       this._disarmed = true;
@@ -1198,6 +1201,32 @@ export class Game {
   // ── Gameplay frame ────────────────────────────────────────────────────────
 
   private updatePlaying(dt: number, input: InputState): void {
+    // The film has the controls: during any shot or scripted sequence the
+    // ship flies itself, dead centre and nose forward. (The final choice is
+    // the one exception: it reads the raw input once its shots are over.)
+    const raw = input;
+    const filmed = this.cameraRig.shotActive ||
+      (this._seq !== 'none' && this._seq !== 'choice');
+    if (filmed) {
+      input = {
+        ...input, mouseMode: true, moveX: 0, moveY: 0, horizontalAxis: 0, verticalAxis: 0,
+        fire: false, bomb: false, boost: false, rollLeft: false, rollRight: false,
+      };
+      this._keyboardAimX = this._keyboardAimY = 0;
+    }
+    // A fresh press of FIRE skips a stage's opening shots.
+    if (!raw.fire) this._skipArmed = true;
+    const skippable = this._seq === 'warpIn' && this.cameraRig.shotActive && this._seqTime > 0.8;
+    if (skippable !== this._skippable) {
+      this._skippable = skippable;
+      document.body.classList.toggle('skippable', skippable);
+    }
+    if (skippable && raw.fire && this._skipArmed) {
+      this.cameraRig.endShots();
+      this._seqTime = Math.max(this._seqTime, this._introLen);
+    }
+    if (raw.fire) this._skipArmed = false;
+
     const alive = this.lifeManager.phase === 'playing' || this.lifeManager.phase === 'spawning';
 
     // ── Boost meter ─────────────────────────────────────────────────────────
@@ -1328,7 +1357,7 @@ export class Game {
 
     // Fire direction through the aim point (+ soft lock-on assist).
     let fireDir = this.computeAimDirection(aimScreenX, aimScreenY, shipWorldPos);
-    const target = this.findLockTarget(aimScreenX, aimScreenY);
+    const target = filmed ? null : this.findLockTarget(aimScreenX, aimScreenY);
     this._locked = target !== null;
     if (target) {
       const toTarget = target.clone().sub(shipWorldPos.position).normalize();
@@ -1352,7 +1381,7 @@ export class Game {
     this.cameraRig.setSubject(shipWorldPos.position);
     this.cameraRig.update(dt);
 
-    if (this._seq === 'choice') this.updateChoice(dt, input);
+    if (this._seq === 'choice') this.updateChoice(dt, raw);
     const canFire = this.lifeManager.phase === 'playing' && !this._disarmed && !inShot &&
       (this._seq === 'none' || this._seq === 'warpIn' || this._seq === 'clear');
     if (input.fire && canFire) this.weaponSystem.fireLaser(shipWorldPos.position.clone(), fireDir.clone(), shipWorldPos.forward.clone());

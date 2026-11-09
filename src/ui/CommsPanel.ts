@@ -23,6 +23,9 @@ export class CommsPanel {
   onBlip: ((who: Line['who']) => void) | null = null;
   /** Called when a new line starts (voice-over). */
   onLine: ((line: Line) => void) | null = null;
+  /** True while the current line is still being spoken aloud. */
+  speaking: (() => boolean) | null = null;
+  private over = 0;        // seconds spent waiting for the voice past the hold
   /** Called when speech must stop at once (interrupt, shutdown, reset). */
   onHush: (() => void) | null = null;
 
@@ -75,6 +78,7 @@ export class CommsPanel {
       if (!next) { this.root.classList.remove('open'); return; }
       this.current = next;
       this.shown = 0;
+      this.over = 0;
       this.hold = Math.max(1.7, next.text.length * 0.05);
       this.root.dataset.who = next.who;
       this.nameEl.textContent = next.who === 'LYRA' ? 'LYRA' : 'SENSOR · SIN FILTRAR';
@@ -96,6 +100,8 @@ export class CommsPanel {
     } else {
       this.root.classList.remove('talking');
       this.hold -= dt;
+      // Never cut a sentence off: wait for the voice (with a safety cap).
+      if (this.speaking?.() && this.over < 7) { this.over += dt; return; }
       // Don't linger when more is waiting.
       if (this.hold <= 0 || (this.queue.length > 1 && this.hold < 1)) this.current = null;
     }
