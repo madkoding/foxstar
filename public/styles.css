@@ -1525,3 +1525,9 @@ body:not(.in-game) #glass, body.cinema #glass { display: none; }
   70%  { opacity: .55; transform: translateY(18px) scale(.7, 1.5); filter: blur(1.5px); border-radius: 45% 45% 50% 50%; }
   100% { opacity: 0; transform: translateY(90px) scale(.3, 2.4); filter: blur(2.5px); }
 }
+/* Opening shots can be skipped with a fresh press of FIRE. */
+#letterbox-top::after {
+  content: 'FUEGO · saltar'; position: absolute; right: 18px; bottom: 8px; opacity: 0; transition: opacity .4s;
+  font-family: var(--font-display); font-size: 10px; letter-spacing: 3px; color: rgba(255, 255, 255, .55);
+}
+body.cinema.skippable #letterbox-top::after { opacity: 1; }

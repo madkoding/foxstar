@@ -1,11 +1,12 @@
-// ─── Score Synth: the film's two original cues, synthesised live ────────────
+// ─── Score: the film's two original cues ────────────────────────────────────
 //
-//   guardian — slow D-minor lament (pad + low drone + sparse bells) for the
-//              Guardian's pain and the final choice
-//   epilogue — warm D-major theme with a rising arpeggio for the flight home
+//   guardian — slow D-minor lament for the Guardian's pain and the final choice
+//   epilogue — warm D-major theme for the flight home
 //
-// Bars are scheduled a little ahead of the audio clock from a light timer, so
-// timing is sample-accurate and the cue can be faded or paused at any moment.
+// Each cue is a recorded track in public/music/, looped with a crossfade
+// between two players so the seam is never heard. If a track can't be loaded
+// the cue falls back to a version synthesised live (pad + drone + bells),
+// scheduled a little ahead of the audio clock from a light timer.
 
 export type Cue = 'guardian' | 'epilogue';
 
@@ -39,7 +40,81 @@ const CUES: Record<Cue, CueDef> = {
   },
 };
 
+interface Track { src: string; loopStart: number; loopEnd: number; volume: number }
+
+// Loop points skip each recording's slow intro and its final fade-out.
+const TRACKS: Record<Cue, Track> = {
+  guardian: { src: './music/guardian.mp3', loopStart: 14, loopEnd: 53, volume: 0.9 },
+  epilogue: { src: './music/epilogue.mp3', loopStart: 1, loopEnd: 58, volume: 0.7 },
+};
+const CROSSFADE = 2.5;
+
+/** A recorded cue: two <audio> players trading off across the loop seam. */
+class RecordedCue {
+  private players: HTMLAudioElement[];
+  private gains = [0, 0];       // per-player crossfade weight
+  private active = 0;
+  private level = 0;            // overall fade (in / out)
+  private levelTarget = 1;
+  private levelRate: number;
+  private timer: number;
+  private paused = false;
+  private dead = false;
+
+  constructor(private track: Track, fadeIn: number, onError: () => void) {
+    this.players = [new Audio(track.src), new Audio(track.src)];
+    for (const a of this.players) { a.preload = 'auto'; a.volume = 0; }
+    this.players[0].addEventListener('error', () => { if (!this.dead) { this.dispose(); onError(); } }, { once: true });
+    this.levelRate = 1 / Math.max(0.05, fadeIn);
+    this.gains[0] = 1;
+    this.players[0].play().catch(() => { /* blocked until a gesture: tick() retries */ });
+    this.timer = window.setInterval(() => this.tick(0.05), 50);
+  }
+
+  private tick(dt: number): void {
+    if (this.paused) return;
+    const cur = this.players[this.active], other = this.players[1 - this.active];
+    if (cur.paused && !cur.ended && this.levelTarget > 0) cur.play().catch(() => {});
+    // Approaching the loop point (or the file's end): bring in the other player.
+    const end = Math.min(this.track.loopEnd, (cur.duration || Infinity) - 0.2);
+    if (cur.currentTime >= end - CROSSFADE && other.paused) {
+      other.currentTime = this.track.loopStart;
+      other.play().catch(() => {});
+    }
+    if (!other.paused) {
+      const step = dt / CROSSFADE;
+      this.gains[1 - this.active] = Math.min(1, this.gains[1 - this.active] + step);
+      this.gains[this.active] = Math.max(0, this.gains[this.active] - step);
+      if (this.gains[this.active] <= 0) { cur.pause(); this.active = 1 - this.active; }
+    }
+    this.level += Math.sign(this.levelTarget - this.level) * Math.min(Math.abs(this.levelTarget - this.level), this.levelRate * dt);
+    for (let i = 0; i < 2; i++) this.players[i].volume = Math.min(1, this.gains[i] * this.level * this.track.volume);
+    if (this.levelTarget === 0 && this.level <= 0) this.dispose();
+  }
+
+  fadeOut(seconds: number): void {
+    this.levelTarget = 0;
+    this.levelRate = 1 / Math.max(0.05, seconds);
+  }
+
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    for (let i = 0; i < 2; i++) {
+      if (paused) this.players[i].pause();
+      else if (this.gains[i] > 0) this.players[i].play().catch(() => {});
+    }
+  }
+
+  dispose(): void {
+    this.dead = true;
+    clearInterval(this.timer);
+    for (const a of this.players) { a.pause(); a.removeAttribute('src'); a.load(); }
+  }
+}
+
 export class ScoreSynth {
+  private recorded: RecordedCue | null = null;
+  private _playing = false;
   private master: GainNode | null = null;
   private cue: CueDef | null = null;
   private timer: number | null = null;
@@ -50,12 +125,21 @@ export class ScoreSynth {
 
   constructor(private bus: () => Bus | null) {}
 
-  get playing(): boolean { return this.cue !== null; }
+  get playing(): boolean { return this._playing; }
 
   play(cue: Cue, fadeIn = 3): void {
+    this.stop(0.6);
+    this._playing = true;
+    // Recorded track first; the synth only if it fails to load.
+    this.recorded = new RecordedCue(TRACKS[cue], fadeIn, () => {
+      this.recorded = null;
+      if (this._playing) this.playSynth(cue, fadeIn);
+    });
+  }
+
+  private playSynth(cue: Cue, fadeIn: number): void {
     const bus = this.bus();
     if (!bus) return;
-    this.stop(0.6);
     const { ctx, out } = bus;
     this.cue = CUES[cue];
     this.master = ctx.createGain();
@@ -70,6 +154,9 @@ export class ScoreSynth {
   }
 
   stop(fade = 2.5): void {
+    this._playing = false;
+    this.recorded?.fadeOut(fade);
+    this.recorded = null;
     if (this.timer !== null) { clearInterval(this.timer); this.timer = null; }
     const m = this.master;
     const bus = this.bus();
@@ -86,6 +173,7 @@ export class ScoreSynth {
 
   /** Game paused: hold the cue silently (bars already playing ring out). */
   setPaused(paused: boolean): void {
+    this.recorded?.setPaused(paused);
     this.paused = paused;
     const bus = this.bus();
     if (!paused && bus) this.nextBar = Math.max(this.nextBar, bus.ctx.currentTime + 0.1);
